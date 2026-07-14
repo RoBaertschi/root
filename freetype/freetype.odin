@@ -1,7 +1,6 @@
 package freetype
 
 import "vendor:stb/image"
-import "core:image/png"
 import "core:fmt"
 import "base:intrinsics"
 import "core:os"
@@ -1622,7 +1621,7 @@ StreamDesc :: struct #raw_union {
  *
  *   buffer ::
  *     The address of the read buffer.
- *
+*
  *   count ::
  *     The number of bytes to read from the stream.
  *
@@ -1992,8 +1991,8 @@ Face :: struct {
 	underline_thickness: c.short,
 
 	glyph:   ^GlyphSlot,
-	size:    Size,
-	charmap: CharMap,
+	size:    ^Size,
+	charmap: ^CharMap,
 
 	/* private fields, internal to FreeType */
 	driver: ^Driver,
@@ -2006,6 +2005,160 @@ Face :: struct {
 	extensions: rawptr,  /* unused                         */
 
 	internal: ^Face_Internal,
+}
+
+/**************************************************************************
+ *
+ * @enum:
+ *   FT_OPEN_XXX
+ *
+ * @description:
+ *   A list of bit field constants used within the `flags` field of the
+ *   @FT_Open_Args structure.
+ *
+ * @values:
+ *   FT_OPEN_MEMORY ::
+ *     This is a memory-based stream.
+ *
+ *   FT_OPEN_STREAM ::
+ *     Copy the stream from the `stream` field.
+ *
+ *   FT_OPEN_PATHNAME ::
+ *     Create a new input stream from a C~path name.
+ *
+ *   FT_OPEN_DRIVER ::
+ *     Use the `driver` field.
+ *
+ *   FT_OPEN_PARAMS ::
+ *     Use the `num_params` and `params` fields.
+ *
+ * @note:
+ *   The `FT_OPEN_MEMORY`, `FT_OPEN_STREAM`, and `FT_OPEN_PATHNAME` flags
+ *   are mutually exclusive.
+ */
+Open_Flag :: enum {
+	MEMORY   = intrinsics.constant_log2(0x1),
+	STREAM   = intrinsics.constant_log2(0x2),
+	PATHNAME = intrinsics.constant_log2(0x4),
+	DRIVER   = intrinsics.constant_log2(0x8),
+	PARAMS   = intrinsics.constant_log2(0x10),
+}
+
+Open_Flags :: bit_set[Open_Flag; c.uint]
+
+/**************************************************************************
+ *
+ * @struct:
+ *   FT_Parameter
+ *
+ * @description:
+ *   A simple structure to pass more or less generic parameters to
+ *   @FT_Open_Face and @FT_Face_Properties.
+ *
+ * @fields:
+ *   tag ::
+ *     A four-byte identification tag.
+ *
+ *   data ::
+ *     A pointer to the parameter data.
+ *
+ * @note:
+ *   The ID and function of parameters are driver-specific.  See section
+ *   @parameter_tags for more information.
+ */
+Parameter :: struct {
+	tag:  c.ulong,
+	data: rawptr,
+}
+
+/**************************************************************************
+ *
+ * @type:
+ *   FT_Module
+ *
+ * @description:
+ *   A handle to a given FreeType module object.  A module can be a font
+ *   driver, a renderer, or anything else that provides services to the
+ *   former.
+ */
+Module :: struct {}
+
+/**************************************************************************
+ *
+ * @struct:
+ *   FT_Open_Args
+ *
+ * @description:
+ *   A structure to indicate how to open a new font file or stream.  A
+ *   pointer to such a structure can be used as a parameter for the
+ *   functions @FT_Open_Face and @FT_Attach_Stream.
+ *
+ * @fields:
+ *   flags ::
+ *     A set of bit flags indicating how to use the structure.
+ *
+ *   memory_base ::
+ *     The first byte of the file in memory.
+ *
+ *   memory_size ::
+ *     The size in bytes of the file in memory.
+ *
+ *   pathname ::
+ *     A pointer to an 8-bit file pathname, which must be a C~string (i.e.,
+ *     no null bytes except at the very end).  The pointer is not owned by
+ *     FreeType.
+ *
+ *   stream ::
+ *     A handle to a source stream object.
+ *
+ *   driver ::
+ *     This field is exclusively used by @FT_Open_Face; it simply specifies
+ *     the font driver to use for opening the face.  If set to `NULL`,
+ *     FreeType tries to load the face with each one of the drivers in its
+ *     list.
+ *
+ *   num_params ::
+ *     The number of extra parameters.
+ *
+ *   params ::
+ *     Extra parameters passed to the font driver when opening a new face.
+ *
+ * @note:
+ *   The stream type is determined by the contents of `flags`:
+ *
+ *   If the @FT_OPEN_MEMORY bit is set, assume that this is a memory file
+ *   of `memory_size` bytes, located at `memory_address`.  The data are not
+ *   copied, and the client is responsible for releasing and destroying
+ *   them _after_ the corresponding call to @FT_Done_Face.
+ *
+ *   Otherwise, if the @FT_OPEN_STREAM bit is set, assume that a custom
+ *   input stream `stream` is used.
+ *
+ *   Otherwise, if the @FT_OPEN_PATHNAME bit is set, assume that this is a
+ *   normal file and use `pathname` to open it.
+ *
+ *   If none of the above bits are set or if multiple are set at the same
+ *   time, the flags are invalid and @FT_Open_Face fails.
+ *
+ *   If the @FT_OPEN_DRIVER bit is set, @FT_Open_Face only tries to open
+ *   the file with the driver whose handler is in `driver`.
+ *
+ *   If the @FT_OPEN_PARAMS bit is set, the parameters given by
+ *   `num_params` and `params` is used.  They are ignored otherwise.
+ *
+ *   Ideally, both the `pathname` and `params` fields should be tagged as
+ *   'const'; this is missing for API backward compatibility.  In other
+ *   words, applications should treat them as read-only.
+ */
+Open_Args :: struct {
+	flags:       Open_Flags,
+	memory_base: ^byte,
+	memory_size: c.long,
+	pathname:    cstring,
+	stream:      ^Stream,
+	driver:      ^Module,
+	num_params:  c.int,
+	params:      [^]Parameter,
 }
 
 /**************************************************************************
@@ -2421,12 +2574,363 @@ Load_Flags :: bit_set[Load_Flag; i32]
 *   necessary to empty the cache after a mode switch to avoid false hits.
 *
 */
-load_flags :: #force_inline proc(flags: Load_Flags, mode := Render_Mode.NORMAL) -> i32 {
+load_flags :: #force_inline proc "contextless" (flags: Load_Flags, mode := Render_Mode.NORMAL) -> i32 {
 	f := transmute(i32)flags
 	f |= (i32(mode) & 15) << 16
 	return f
 }
 
+Kerning_Mode :: enum c.uint {
+	DEFAULT = 0,
+	UNFITTED,
+	UNSCALED,
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_HORIZONTAL
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains horizontal
+ *   metrics (this is true for all font formats though).
+ *
+ * @also:
+ *   @FT_HAS_VERTICAL can be used to check for vertical metrics.
+ *
+ */
+HAS_HORIZONTAL :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .HORIZONTAL in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_VERTICAL
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains real
+ *   vertical metrics (and not only synthesized ones).
+ *
+ */
+HAS_VERTICAL :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .VERTICAL in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_KERNING
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains kerning data
+ *   that can be accessed with @FT_Get_Kerning.
+ *
+ */
+HAS_KERNING :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .KERNING in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_SCALABLE
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains a scalable
+ *   font face (true for TrueType, Type~1, Type~42, CID, OpenType/CFF, and
+ *   PFR font formats).
+ *
+ */
+IS_SCALABLE :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .SCALABLE in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_SFNT
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains a font whose
+ *   format is based on the SFNT storage scheme.  This usually means:
+ *   TrueType fonts, OpenType fonts, as well as SFNT-based embedded bitmap
+ *   fonts.
+ *
+ *   If this macro is true, all functions defined in @FT_SFNT_NAMES_H and
+ *   @FT_TRUETYPE_TABLES_H are available.
+ *
+ */
+IS_SFNT :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .SFNT in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_FIXED_WIDTH
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains a font face
+ *   that contains fixed-width (or 'monospace', 'fixed-pitch', etc.)
+ *   glyphs.
+ *
+ */
+IS_FIXED_WIDTH :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .FIXED_WIDTH in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_FIXED_SIZES
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains some
+ *   embedded bitmaps.  See the `available_sizes` field of the @FT_FaceRec
+ *   structure.
+ *
+ */
+IS_FIXED_SIZES :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .FIXED_SIZES in face.face_flags
+}
+
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_GLYPH_NAMES
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains some glyph
+ *   names that can be accessed through @FT_Get_Glyph_Name.
+ *
+ */
+HAS_GLYPH_NAMES :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .GLYPH_NAMES in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_MULTIPLE_MASTERS
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains some
+ *   multiple masters.  The functions provided by @FT_MULTIPLE_MASTERS_H
+ *   are then available to choose the exact design you want.
+ *
+ */
+HAS_MULTIPLE_MASTERS :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .MULTIPLE_MASTERS in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_NAMED_INSTANCE
+ *
+ * @description:
+ *   A macro that returns true whenever a face object is a named instance
+ *   of a TrueType GX or OpenType Font Variations.
+ *
+ *   [Since 2.9] Changing the design coordinates with
+ *   @FT_Set_Var_Design_Coordinates or @FT_Set_Var_Blend_Coordinates does
+ *   not influence the return value of this macro (only
+ *   @FT_Set_Named_Instance does that).
+ *
+ * @since:
+ *   2.7
+ *
+ */
+IS_NAMED_INSTANCE :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return (face.face_index & 0x7FFF0000) != 0
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_VARIATION
+ *
+ * @description:
+ *   A macro that returns true whenever a face object has been altered by
+ *   @FT_Set_MM_Design_Coordinates, @FT_Set_Var_Design_Coordinates,
+ *   @FT_Set_Var_Blend_Coordinates, or @FT_Set_MM_WeightVector.
+ *
+ * @since:
+ *   2.9
+ *
+ */
+IS_VARIATION :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .VARIATION in face.face_flags
+}
+
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_CID_KEYED
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains a CID-keyed
+ *   font.  See the discussion of @FT_FACE_FLAG_CID_KEYED for more details.
+ *
+ *   If this macro is true, all functions defined in @FT_CID_H are
+ *   available.
+ *
+ */
+IS_CID_KEYED :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .CID_KEYED in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_IS_TRICKY
+ *
+ * @description:
+ *   A macro that returns true whenever a face represents a 'tricky' font.
+ *   See the discussion of @FT_FACE_FLAG_TRICKY for more details.
+ *
+ */
+IS_TRICKY :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .TRICKY in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_COLOR
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains tables for
+ *   color glyphs.
+ *
+ * @since:
+ *   2.5.1
+ *
+ */
+HAS_COLOR :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .COLOR in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_SVG
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains an 'SVG~'
+ *   OpenType table.
+ *
+ * @since:
+ *   2.12
+ */
+HAS_SVG :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .SVG in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_SBIX
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains an 'sbix'
+ *   OpenType table *and* outline glyphs.
+ *
+ *   Currently, FreeType only supports bitmap glyphs in PNG format for this
+ *   table (i.e., JPEG and TIFF formats are unsupported, as are
+ *   Apple-specific formats not part of the OpenType specification).
+ *
+ * @note:
+ *   For backward compatibility, a font with an 'sbix' table is treated as
+ *   a bitmap-only face.  Using @FT_Open_Face with
+ *   @FT_PARAM_TAG_IGNORE_SBIX, an application can switch off 'sbix'
+ *   handling so that the face is treated as an ordinary outline font with
+ *   scalable outlines.
+ *
+ *   Here is some pseudo code that roughly illustrates how to implement
+ *   'sbix' handling according to the OpenType specification.
+ *
+ * ```
+ *   if ( FT_HAS_SBIX( face ) )
+ *   {
+ *     // open font as a scalable one without sbix handling
+ *     FT_Face       face2;
+ *     FT_Parameter  param = { FT_PARAM_TAG_IGNORE_SBIX, NULL };
+ *     FT_Open_Args  args  = { FT_OPEN_PARAMS | ...,
+ *                             ...,
+ *                             1, &param };
+ *
+ *
+ *     FT_Open_Face( library, &args, 0, &face2 );
+ *
+ *     <sort `face->available_size` as necessary into
+ *      `preferred_sizes`[*]>
+ *
+ *     for ( i = 0; i < face->num_fixed_sizes; i++ )
+ *     {
+ *       size = preferred_sizes[i].size;
+ *
+ *       error = FT_Set_Pixel_Sizes( face, size, size );
+ *       <error handling omitted>
+ *
+ *       // check whether we have a glyph in a bitmap strike
+ *       error = FT_Load_Glyph( face,
+ *                              glyph_index,
+ *                              FT_LOAD_SBITS_ONLY          |
+ *                              FT_LOAD_BITMAP_METRICS_ONLY );
+ *       if ( error == FT_Err_Invalid_Argument )
+ *         continue;
+ *       else if ( error )
+ *         <other error handling omitted>
+ *       else
+ *         break;
+ *     }
+ *
+ *     if ( i != face->num_fixed_sizes )
+ *       <load embedded bitmap with `FT_Load_Glyph`,
+ *        scale it, display it, etc.>
+ *
+ *     if ( i == face->num_fixed_sizes  ||
+ *          FT_HAS_SBIX_OVERLAY( face ) )
+ *       <use `face2` to load outline glyph with `FT_Load_Glyph`,
+ *        scale it, display it on top of the bitmap, etc.>
+ *   }
+ * ```
+ *
+ * [*] Assuming a target value of 400dpi and available strike sizes 100,
+* 200, 300, and 400dpi, a possible order might be [400, 200, 300, 100]:
+* scaling 200dpi to 400dpi usually gives better results than scaling
+* 300dpi to 400dpi; it is also much faster.  However, scaling 100dpi to
+* 400dpi can yield a too pixelated result, thus the preference might be
+* 300dpi over 100dpi.
+*
+* @since:
+*   2.12
+*/
+HAS_SBIX :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .SBIX in face.face_flags
+}
+
+/**************************************************************************
+ *
+ * @macro:
+ *   FT_HAS_SBIX_OVERLAY
+ *
+ * @description:
+ *   A macro that returns true whenever a face object contains an 'sbix'
+ *   OpenType table with bit~1 in its `flags` field set, instructing the
+ *   application to overlay the bitmap strike with the corresponding
+ *   outline glyph.  See @FT_HAS_SBIX for pseudo code how to use it.
+ *
+ * @since:
+ *   2.12
+ */
+HAS_SBIX_OVERLAY :: #force_inline proc "contextless" (face: ^Face) -> bool {
+	return .SBIX_OVERLAY in face.face_flags
+}
 
 @(default_calling_convention="c", link_prefix="FT_")
 foreign lib {
@@ -2575,6 +3079,65 @@ foreign lib {
 	 *   You must not deallocate the memory before calling @FT_Done_Face.
 	 */
 	New_Memory_Face :: proc(library: ^Library, file_base: [^]byte, file_size: c.long, face_index: c.long, aface: ^^Face) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Attach_File
+	 *
+	 * @description:
+	 *   Call @FT_Attach_Stream to attach a file.
+	 *
+	 * @inout:
+	 *   face ::
+	 *     The target face object.
+	 *
+	 * @input:
+	 *   filepathname ::
+	 *     The pathname.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 */
+	Attach_File :: proc(face: ^Face, filepathname: cstring) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_New_Face
+	 *
+	 * @description:
+	 *   Call @FT_Open_Face to open a font by its pathname.
+	 *
+	 * @inout:
+	 *   library ::
+	 *     A handle to the library resource.
+	 *
+	 * @input:
+	 *   pathname ::
+	 *     A path to the font file.
+	 *
+	 *   face_index ::
+	 *     See @FT_Open_Face for a detailed description of this parameter.
+	 *
+	 * @output:
+	 *   aface ::
+	 *     A handle to a new face object.  If `face_index` is greater than or
+	 *     equal to zero, it must be non-`NULL`.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 *
+	 * @note:
+	 *   The `pathname` string should be recognizable as such by a standard
+	 *   `fopen` call on your system; in particular, this means that `pathname`
+	 *   must not contain null bytes.  If that is not sufficient to address all
+	 *   file name possibilities (for example, to handle wide character file
+	 *   names on Windows in UTF-16 encoding) you might use @FT_Open_Face to
+	 *   pass a memory array or a stream object instead.
+	 *
+	 *   Use @FT_Done_Face to destroy the created @FT_Face object (along with
+	 *   its slot and sizes).
+	 */
+	Attach_Stream :: proc(face: ^Face, #by_ptr parameters: Open_Args) -> Error ---
 	/**************************************************************************
 	 *
 	 * @function:
@@ -2869,6 +3432,549 @@ foreign lib {
 	*   and so on for green and blue.
 	*/
 	Render_Glyph :: proc(slot: ^GlyphSlot, render_mode: Render_Mode) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Get_Kerning
+	 *
+	 * @description:
+	 *   Return the kerning vector between two glyphs of the same face.
+	 *
+	 * @input:
+	 *   face ::
+	 *     A handle to a source face object.
+	 *
+	 *   left_glyph ::
+	 *     The index of the left glyph in the kern pair.
+	 *
+	 *   right_glyph ::
+	 *     The index of the right glyph in the kern pair.
+	 *
+	 *   kern_mode ::
+	 *     See @FT_Kerning_Mode for more information.  Determines the scale and
+	 *     dimension of the returned kerning vector.
+	 *
+	 * @output:
+	 *   akerning ::
+	 *     The kerning vector.  This is either in font units, fractional pixels
+	 *     (26.6 format), or pixels for scalable formats, and in pixels for
+	 *     fixed-sizes formats.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 *
+	 * @note:
+	 *   Only horizontal layouts (left-to-right & right-to-left) are supported
+	 *   by this method.  Other layouts, or more sophisticated kernings, are
+	 *   out of the scope of this API function -- they can be implemented
+	 *   through format-specific interfaces.
+	 *
+	 *   Note that, for TrueType and OpenType fonts only, this can extract data
+	 *   from both the 'kern' table and the basic, pair-wise kerning feature
+	 *   from the GPOS table (with `TT_CONFIG_OPTION_GPOS_KERNING` enabled),
+	 *   though FreeType does not support the more advanced GPOS layout
+	 *   features; use a library like HarfBuzz for those instead.  If a font
+	 *   has both a 'kern' table and kern features of a GPOS table, the 'kern'
+	 *   table will be used.
+	 *
+	 *   Also note for right-to-left scripts, the functionality may differ for
+	 *   fonts with GPOS tables vs. 'kern' tables.  For GPOS, right-to-left
+	 *   fonts typically use both a placement offset and an advance for pair
+	 *   positioning, which this API does not support, so it would output
+	 *   kerning values of zero; though if the right-to-left font used only
+	 *   advances in GPOS pair positioning, then this API could output kerning
+	 *   values for it, but it would use `left_glyph` to mean the first glyph
+	 *   for that case.  Whereas 'kern' tables are always advance-only and
+	 *   always store the left glyph first.
+	 *
+	 *   Use @FT_HAS_KERNING to find out whether a font has data that can be
+	 *   extracted with `FT_Get_Kerning`.
+	 */
+	Get_Kerning :: proc(face: ^Face, left_glyph: c.uint, right_glyph: c.uint, kern_mode: Kerning_Mode, akerning: ^Vector) -> Error ---
+}
+
+/* forward declaration to a private type */
+Glyph_Class :: struct {}
+
+/**************************************************************************
+ *
+ * @struct:
+ *   FT_GlyphRec
+ *
+ * @description:
+ *   The root glyph structure contains a given glyph image plus its advance
+ *   width in 16.16 fixed-point format.
+ *
+ * @fields:
+ *   library ::
+ *     A handle to the FreeType library object.
+ *
+ *   clazz ::
+ *     A pointer to the glyph's class.  Private.
+ *
+ *   format ::
+ *     The format of the glyph's image.
+ *
+ *   advance ::
+ *     A 16.16 vector that gives the glyph's advance width.
+ */
+Glyph :: struct {
+	library: ^Library,
+	clazz:   ^Glyph_Class, // NOTE: const
+	format:  Glyph_Format,
+	advance: Vector,
+}
+
+/**************************************************************************
+ *
+ * @struct:
+ *   FT_Matrix
+ *
+ * @description:
+ *   A simple structure used to store a 2x2 matrix.  Coefficients are in
+ *   16.16 fixed-point format.  The computation performed is:
+ *
+ *   ```
+ *     x' = x*xx + y*xy
+ *     y' = x*yx + y*yy
+ *   ```
+ *
+ * @fields:
+ *   xx ::
+ *     Matrix coefficient.
+ *
+ *   xy ::
+ *     Matrix coefficient.
+ *
+ *   yx ::
+ *     Matrix coefficient.
+ *
+ *   yy ::
+ *     Matrix coefficient.
+ */
+
+Matrix :: #row_major matrix[2, 2]Fixed
+
+
+// NOTE: Ensure layout is the same as the actual type from freetype
+// NOTE: Alignment of matrixes is larger than the actual struct, this is ok usually
+#assert(size_of(Matrix) == size_of(struct{ xx, xy, yx, yy: Fixed }))
+#assert(align_of(Matrix) >= align_of(struct{ xx, xy, yx, yy: Fixed }))
+
+
+/**************************************************************************
+ *
+ * @enum:
+ *   FT_Glyph_BBox_Mode
+ *
+ * @description:
+ *   The mode how the values of @FT_Glyph_Get_CBox are returned.
+ *
+ * @values:
+ *   FT_GLYPH_BBOX_UNSCALED ::
+ *     Return unscaled font units.
+ *
+ *   FT_GLYPH_BBOX_SUBPIXELS ::
+ *     Return unfitted 26.6 coordinates.
+ *
+ *   FT_GLYPH_BBOX_GRIDFIT ::
+ *     Return grid-fitted 26.6 coordinates.
+ *
+ *   FT_GLYPH_BBOX_TRUNCATE ::
+ *     Return coordinates in integer pixels.
+ *
+ *   FT_GLYPH_BBOX_PIXELS ::
+ *     Return grid-fitted pixel coordinates.
+ */
+BBox_Mode :: enum c.int {
+	 UNSCALED  = 0,
+	 SUBPIXELS = 0,
+	 GRIDFIT   = 1,
+	 TRUNCATE  = 2,
+	 PIXELS    = 3,
+}
+
+/**************************************************************************
+ *
+ * @struct:
+ *   FT_BitmapGlyphRec
+ *
+ * @description:
+ *   A structure used for bitmap glyph images.  This really is a
+ *   'sub-class' of @FT_GlyphRec.
+ *
+ * @fields:
+ *   root ::
+ *     The root fields of @FT_Glyph.
+ *
+ *   left ::
+ *     The left-side bearing, i.e., the horizontal distance from the
+ *     current pen position to the left border of the glyph bitmap.
+ *
+ *   top ::
+ *     The top-side bearing, i.e., the vertical distance from the current
+ *     pen position to the top border of the glyph bitmap.  This distance
+ *     is positive for upwards~y!
+ *
+ *   bitmap ::
+ *     A descriptor for the bitmap.
+ *
+ * @note:
+ *   You can typecast an @FT_Glyph to @FT_BitmapGlyph if you have
+ *   `glyph->format == FT_GLYPH_FORMAT_BITMAP`.  This lets you access the
+ *   bitmap's contents easily.
+ *
+ *   The corresponding pixel buffer is always owned by @FT_BitmapGlyph and
+ *   is thus created and destroyed with it.
+ */
+BitmapGlyph :: struct {
+	root:   Glyph,
+	left:   c.int,
+	top:    c.int,
+	bitmap: Bitmap,
+}
+
+// ftglyph.h
+@(default_calling_convention="c", link_prefix="FT_")
+foreign lib {
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Get_Glyph
+	 *
+	 * @description:
+	 *   A function used to extract a glyph image from a slot.  Note that the
+	 *   created @FT_Glyph object must be released with @FT_Done_Glyph.
+	 *
+	 * @input:
+	 *   slot ::
+	 *     A handle to the source glyph slot.
+	 *
+	 * @output:
+	 *   aglyph ::
+	 *     A handle to the glyph object.  `NULL` in case of error.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 *
+	 * @note:
+	 *   Because `*aglyph->advance.x` and `*aglyph->advance.y` are 16.16
+	 *   fixed-point numbers, `slot->advance.x` and `slot->advance.y` (which
+	 *   are in 26.6 fixed-point format) must be in the range ]-32768;32768[.
+	 */
+	Get_Glyph :: proc(slot: ^GlyphSlot, aglyph: ^^Glyph) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Glyph_Copy
+	 *
+	 * @description:
+	 *   A function used to copy a glyph image.  Note that the created
+	 *   @FT_Glyph object must be released with @FT_Done_Glyph.
+	 *
+	 * @input:
+	 *   source ::
+	 *     A handle to the source glyph object.
+	 *
+	 * @output:
+	 *   target ::
+	 *     A handle to the target glyph object.  `NULL` in case of error.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 */
+	Glyph_Copy :: proc(source: ^Glyph, target: ^^Glyph) -> Error ---
+
+	/**************************************************************************
+	 * BINDING NOTE: I have found, that both `matrix_` and `delta` are optional
+	 *               Default parameters are there so that you can just do `Glyph_Transform(..., matrix = ...)` or `Glyph_Transform(..., delta = ...)` if you only need one of them
+	 *
+	 * @function:
+	 *   FT_Glyph_Transform
+	 *
+	 * @description:
+	 *   Transform a glyph image if its format is scalable.
+	 *
+	 * @inout:
+	 *   glyph ::
+	 *     A handle to the target glyph object.
+	 *
+	 * @input:
+	 *   matrix ::
+	 *     A pointer to a 2x2 matrix to apply.
+	 *
+	 *   delta ::
+	 *     A pointer to a 2d vector to apply.  Coordinates are expressed in
+	 *     1/64 of a pixel.
+	 *
+	 * @return:
+	 *   FreeType error code (if not 0, the glyph format is not scalable).
+	 *
+	 * @note:
+	 *   The 2x2 transformation matrix is also applied to the glyph's advance
+	 *   vector.
+	 */
+	Glyph_Transform :: proc(glyph: ^Glyph, matrix_: Maybe(^Matrix) = nil, delta: Maybe(^Vector) = nil) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Glyph_Get_CBox
+	 *
+	 * @description:
+	 *   Return a glyph's 'control box'.  The control box encloses all the
+	 *   outline's points, including Bezier control points.  Though it
+	 *   coincides with the exact bounding box for most glyphs, it can be
+	 *   slightly larger in some situations (like when rotating an outline that
+	 *   contains Bezier outside arcs).
+	 *
+	 *   Computing the control box is very fast, while getting the bounding box
+	 *   can take much more time as it needs to walk over all segments and arcs
+	 *   in the outline.  To get the latter, you can use the 'ftbbox'
+	 *   component, which is dedicated to this single task.
+	 *
+	 * @input:
+	 *   glyph ::
+	 *     A handle to the source glyph object.
+	 *
+	 *   mode ::
+	 *     The mode that indicates how to interpret the returned bounding box
+	 *     values.
+	 *
+	 * @output:
+	 *   acbox ::
+	 *     The glyph coordinate bounding box.  Coordinates are expressed in
+	 *     1/64 of pixels if it is grid-fitted.
+	 *
+	 * @note:
+	 *   Coordinates are relative to the glyph origin, using the y~upwards
+	 *   convention.
+	 *
+	 *   If the glyph has been loaded with @FT_LOAD_NO_SCALE, `bbox_mode` must
+	 *   be set to @FT_GLYPH_BBOX_UNSCALED to get unscaled font units in 26.6
+	 *   pixel format.  The value @FT_GLYPH_BBOX_SUBPIXELS is another name for
+	 *   this constant.
+	 *
+	 *   If the font is tricky and the glyph has been loaded with
+	 *   @FT_LOAD_NO_SCALE, the resulting CBox is meaningless.  To get
+	 *   reasonable values for the CBox it is necessary to load the glyph at a
+	 *   large ppem value (so that the hinting instructions can properly shift
+	 *   and scale the subglyphs), then extracting the CBox, which can be
+	 *   eventually converted back to font units.
+	 *
+	 *   Note that the maximum coordinates are exclusive, which means that one
+	 *   can compute the width and height of the glyph image (be it in integer
+	 *   or 26.6 pixels) as:
+	 *
+	 *   ```
+	 *     width  = bbox.xMax - bbox.xMin;
+	 *     height = bbox.yMax - bbox.yMin;
+	 *   ```
+	 *
+	 *   Note also that for 26.6 coordinates, if `bbox_mode` is set to
+	 *   @FT_GLYPH_BBOX_GRIDFIT, the coordinates will also be grid-fitted,
+	 *   which corresponds to:
+	 *
+	 *   ```
+	 *     bbox.xMin = FLOOR(bbox.xMin);
+	 *     bbox.yMin = FLOOR(bbox.yMin);
+	 *     bbox.xMax = CEILING(bbox.xMax);
+	 *     bbox.yMax = CEILING(bbox.yMax);
+	 *   ```
+	 *
+	 *   To get the bbox in pixel coordinates, set `bbox_mode` to
+	 *   @FT_GLYPH_BBOX_TRUNCATE.
+	 *
+	 *   To get the bbox in grid-fitted pixel coordinates, set `bbox_mode` to
+	 *   @FT_GLYPH_BBOX_PIXELS.
+	*/
+	Glyph_Get_CBox :: proc(glyph: ^Glyph, bbox_mode: BBox_Mode, acbox: ^BBox) ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Glyph_To_Bitmap
+	 *
+	 * @description:
+	 *   Convert a given glyph object to a bitmap glyph object.
+	 *
+	 * @inout:
+	 *   the_glyph ::
+	 *     A pointer to a handle to the target glyph.
+	 *
+	 * @input:
+	 *   render_mode ::
+	 *     An enumeration that describes how the data is rendered.
+	 *
+	 *   origin ::
+	 *     A pointer to a vector used to translate the glyph image before
+	 *     rendering.  Can be~0 (if no translation).  The origin is expressed
+	 *     in 26.6 pixels.
+	 *
+	 *   destroy ::
+	 *     A boolean that indicates that the original glyph image should be
+	 *     destroyed by this function.  It is never destroyed in case of error.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 *
+	 * @note:
+	 *   This function does nothing if the glyph format isn't scalable.
+	 *
+	 *   The glyph image is translated with the `origin` vector before
+	 *   rendering.
+	 *
+	 *   The first parameter is a pointer to an @FT_Glyph handle that will be
+	 *   _replaced_ by this function (with newly allocated data).  Typically,
+	 *   you would do something like the following (omitting error handling).
+	 *
+	 *   ```
+	 *     FT_Glyph        glyph;
+	 *     FT_BitmapGlyph  glyph_bitmap;
+	 *
+	 *
+	 *     // load glyph
+	 *     error = FT_Load_Char( face, glyph_index, FT_LOAD_DEFAULT );
+	 *
+	 *     // extract glyph image
+	 *     error = FT_Get_Glyph( face->glyph, &glyph );
+	 *
+	 *     // convert to a bitmap (default render mode + destroying old)
+	 *     if ( glyph->format != FT_GLYPH_FORMAT_BITMAP )
+	 *     {
+	 *       error = FT_Glyph_To_Bitmap( &glyph, FT_RENDER_MODE_NORMAL,
+	 *                                   0, 1 );
+	 *       if ( error ) // `glyph' unchanged
+	 *         ...
+	 *     }
+	 *
+	 *     // access bitmap content by typecasting
+	 *     glyph_bitmap = (FT_BitmapGlyph)glyph;
+	 *
+	 *     // do funny stuff with it, like blitting/drawing
+	 *     ...
+	 *
+	 *     // discard glyph image (bitmap or not)
+	 *     FT_Done_Glyph( glyph );
+	 *   ```
+	 *
+	 *   Here is another example, again without error handling.
+	 *
+	 *   ```
+	 *     FT_Glyph  glyphs[MAX_GLYPHS]
+	 *
+	 *
+	 *     ...
+	 *
+	 *     for ( idx = 0; i < MAX_GLYPHS; i++ )
+	 *       error = FT_Load_Glyph( face, idx, FT_LOAD_DEFAULT ) ||
+	 *               FT_Get_Glyph ( face->glyph, &glyphs[idx] );
+	 *
+	 *     ...
+	 *
+	 *     for ( idx = 0; i < MAX_GLYPHS; i++ )
+	 *     {
+	 *       FT_Glyph  bitmap = glyphs[idx];
+	 *
+	 *
+	 *       ...
+	 *
+	 *       // after this call, `bitmap' no longer points into
+	 *       // the `glyphs' array (and the old value isn't destroyed)
+	 *       FT_Glyph_To_Bitmap( &bitmap, FT_RENDER_MODE_MONO, 0, 0 );
+	 *
+	 *       ...
+	 *
+	 *       FT_Done_Glyph( bitmap );
+	 *     }
+	 *
+	 *     ...
+	 *
+	 *     for ( idx = 0; i < MAX_GLYPHS; i++ )
+	 *       FT_Done_Glyph( glyphs[idx] );
+	 *   ```
+	 */
+	Glyph_To_Bitmap :: proc(the_glyph: ^^Glyph, render_mode: Render_Mode, origin: Maybe(^Vector), destroy: bool) -> Error ---
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Done_Glyph
+	 *
+	 * @description:
+	 *   Destroy a given glyph.
+	 *
+	 * @input:
+	 *   glyph ::
+	 *     A handle to the target glyph object.  Can be `NULL`.
+	 */
+	Done_Glyph :: proc(glyph: ^Glyph) ---
+}
+
+
+// ftbbox.h
+@(default_calling_convention="c", link_prefix="FT_")
+foreign lib {
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Outline_Get_BBox
+	 *
+	 * @description:
+	 *   Compute the exact bounding box of an outline.  This is slower than
+	 *   computing the control box.  However, it uses an advanced algorithm
+	 *   that returns _very_ quickly when the two boxes coincide.  Otherwise,
+	 *   the outline Bezier arcs are traversed to extract their extrema.
+	 *
+	 * @input:
+	 *   outline ::
+	 *     A pointer to the source outline.
+	 *
+	 * @output:
+	 *   abbox ::
+	 *     The outline's exact bounding box.
+	 *
+	 * @return:
+	 *   FreeType error code.  0~means success.
+	 *
+	 * @note:
+	 *   If the font is tricky and the glyph has been loaded with
+	 *   @FT_LOAD_NO_SCALE, the resulting BBox is meaningless.  To get
+	 *   reasonable values for the BBox it is necessary to load the glyph at a
+	 *   large ppem value (so that the hinting instructions can properly shift
+	 *   and scale the subglyphs), then extracting the BBox, which can be
+	 *   eventually converted back to font units.
+	 */
+	Outline_Get_BBox :: proc(outline: ^Outline, abbox: ^BBox) -> Error ---
+}
+
+@(default_calling_convention="c", link_prefix="FT_")
+foreign lib {
+	/**************************************************************************
+	 *
+	 * @function:
+	 *   FT_Error_String
+	 *
+	 * @description:
+	 *   Retrieve the description of a valid FreeType error code.
+	 *
+	 * @input:
+	 *   error_code ::
+	 *     A valid FreeType error code.
+	 *
+	 * @return:
+	 *   A C~string or `NULL`, if any error occurred.
+	 *
+	 * @note:
+	 *   FreeType has to be compiled with `FT_CONFIG_OPTION_ERROR_STRINGS` or
+	 *   `FT_DEBUG_LEVEL_ERROR` to get meaningful descriptions.
+	 *   'error_string' will be `NULL` otherwise.
+	 *
+	 *   Module identification will be ignored:
+	 *
+	 *   ```c
+	 *     strcmp( FT_Error_String(  FT_Err_Unknown_File_Format ),
+	 *             FT_Error_String( BDF_Err_Unknown_File_Format ) ) == 0;
+	 *   ```
+	 */
+	Error_String :: proc(error_code: Error) -> cstring ---
 }
 
 main :: proc() {
