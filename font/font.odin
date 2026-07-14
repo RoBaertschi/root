@@ -17,7 +17,9 @@ import kbts "vendor:kb_text_shape"
 
 ID :: distinct u128
 
-INVALID_ID :: ID(0)
+// TODO(robin): consider special casing path="", face_index=0 to map top DEFAULT_ID
+
+DEFAULT_ID :: ID(0)
 
 Font_Flag :: enum {
 	Bold,
@@ -36,7 +38,7 @@ Font :: struct {
 	path:       string,
 	face_index: int,
 
-	data:      []u8 `fmt: "-"`,
+	data:      []u8 `fmt:"-"`,
 	flags:     Font_Flags,
 	ft_face:   ^ft.Face,
 	kbts_font: kbts.font,
@@ -59,10 +61,16 @@ state_allocator :: proc() -> runtime.Allocator {
 
 state: State
 
+@(private="file")
+default_font_data := #load("embed/JetBrainsMono-Regular.ttf")
+
 init :: proc() -> (ok: bool) {
+	base.perf_scoped()
+
 	state = {}
 
-	state.logger = log.create_console_logger(ident = "FONT", allocator = state_allocator())
+	state.logger   = log.create_console_logger(ident = "FONT", allocator = state_allocator())
+	context.logger = state.logger
 
 	if err := ft.Init_FreeType(&state.ft_library); err != nil {
 		log.fatalf("Could not initalize FreeType: %v(%v)", ft.Error_String(err), err)
@@ -85,7 +93,29 @@ init :: proc() -> (ok: bool) {
 		state.kbts_ctx = nil
 	}
 
-	state.buckets = make([]^Font, 64)
+	INITIAL_BUCKET_SIZE :: 64
+	state.buckets = make([]^Font, INITIAL_BUCKET_SIZE)
+
+	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_BUCKET_SIZE)
+
+	font, _ := virtual.new(&state.arena, Font)
+
+	font.hash = BUCKET_INDEX
+	font.data = default_font_data
+
+	if err := ft.New_Memory_Face(state.ft_library, raw_data(font.data), c.long(len(font.data)), c.long(font.face_index), &font.ft_face); err != nil {
+		log.fatalf("could not create FreeType face for internal default font: %v(%v)", ft.Error_String(err), err)
+		return
+	}
+
+	font.kbts_font = kbts.FontFromMemory(font.data, c.int(font.face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
+	if font.kbts_font.Error != .NONE {
+		log.fatalf("could not create kbts font for internal default font: %v", font.kbts_font.Error)
+		return
+	}
+	defer if !ok {
+		kbts.FreeFont(&font.kbts_font)
+	}
 
 	ok = true
 	return
@@ -120,8 +150,9 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 	} else {
 		font = new(Font, state_allocator())
 	}
-	bucket^   = font
-	font.hash = hash
+	bucket^         = font
+	font.hash       = hash
+	font.face_index = face_index
 	if font.path != font_path {
 		font.path = strings.clone(font_path, allocator = state_allocator())
 	}
@@ -142,25 +173,25 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 				log.errorf("could not read font file %q: %v", font_path, err)
 			}
 			font.error = err
-			return INVALID_ID
+			return DEFAULT_ID
 		}
 	}
 
-	if ft_err := ft.New_Memory_Face(state.ft_library, raw_data(font.data), c.long(len(font.data)), c.long(face_index), &font.ft_face); ft_err != nil {
+	if ft_err := ft.New_Memory_Face(state.ft_library, raw_data(font.data), c.long(len(font.data)), c.long(font.face_index), &font.ft_face); ft_err != nil {
 		if font.error != ft_err {
 			log.errorf("could not create FreeType face for font %q: %v(%v)", font_path, ft.Error_String(ft_err), ft_err)
 		}
 		font.error = ft_err
-		return INVALID_ID
+		return DEFAULT_ID
 	}
 
-	font.kbts_font = kbts.FontFromMemory(font.data, c.int(face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
+	font.kbts_font = kbts.FontFromMemory(font.data, c.int(font.face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
 	if font.kbts_font.Error != .NONE {
 		if font.error != font.kbts_font.Error {
 			log.errorf("could not create kbts font for %q: %v", font_path, font.kbts_font.Error)
 		}
 		font.error = font.kbts_font.Error
-		return INVALID_ID
+		return DEFAULT_ID
 	}
 
 	font.error = nil
@@ -185,7 +216,7 @@ from_path :: proc(path: string, face_index: int) -> ID {
 		font_path, err := os.get_absolute_path(path, temp)
 		if err != nil {
 			log.errorf("could not get absolute path for font path %q: %v", path, err)
-			return INVALID_ID
+			return DEFAULT_ID
 		}
 	} else {
 		font_path := path
