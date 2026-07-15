@@ -1,10 +1,12 @@
 package root
 
+import "base:intrinsics"
 import "core:fmt"
 import "core:os"
 import "core:log"
 
 import "font"
+import W "window"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
@@ -13,12 +15,38 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	get_test_font :: proc() -> font.ID {
-		return font.from_path("/usr/share/fonts/noto/NotoSans-Regular.ttf", 0)
+	if !W.init({
+		size  = { 800, 600 },
+		title = "root",
+	}) {
+		os.exit(1)
 	}
 
-	adwaita := get_test_font()
-	fmt.println(adwaita, font._from_id(adwaita))
+	run := true
+	for run {
+		events := W.events()
+
+		for it := W.event_list_iterator(events^);
+			ev, ev_node in W.event_list_iterate(&it)
+		{
+			if ev.kind == .Close_Request {
+				W.event_list_remove(events, ev_node)
+				run = false
+			}
+		}
+
+		W.frame()
+	}
+
+	// proposed api
+	// W.init()
+	//
+	// for ... {
+	//     events := W.events() // does the polling and such
+	//     ...handle events...
+	//     ...do rendering...
+	//     W.frame()
+	// }
 
 	// for _ in 0..<100 {
 	// 	// ensure(adwaita == get_test_font())
