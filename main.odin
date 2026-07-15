@@ -14,6 +14,13 @@ main :: proc() {
 		os.exit(1)
 	}
 
+	font := F.from_path("/usr/share/fonts/noto/NotoSans-Regular.ttf", 0)
+
+	F.shape_text(font, "Hello World!^a â ö یکအမည်မရှိیک")
+	if true {
+		return
+	}
+
 	if !W.init({
 		size  = { 800, 600 },
 		title = "root",

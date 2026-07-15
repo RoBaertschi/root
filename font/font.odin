@@ -1,5 +1,6 @@
 package root_font
 
+import "core:fmt"
 import "base:runtime"
 
 import "core:c"
@@ -100,13 +101,14 @@ init :: proc() -> (ok: bool) {
 
 	font, _ := virtual.new(&state.arena, Font)
 
-	font.hash = BUCKET_INDEX
 	font.data = default_font_data
 
 	if err := ft.New_Memory_Face(state.ft_library, raw_data(font.data), c.long(len(font.data)), c.long(font.face_index), &font.ft_face); err != nil {
 		log.fatalf("could not create FreeType face for internal default font: %v(%v)", ft.Error_String(err), err)
 		return
 	}
+
+	ft.Set_Pixel_Sizes(font.ft_face, 0, 16)
 
 	font.kbts_font = kbts.FontFromMemory(font.data, c.int(font.face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
 	if font.kbts_font.Error != .NONE {
@@ -116,6 +118,8 @@ init :: proc() -> (ok: bool) {
 	defer if !ok {
 		kbts.FreeFont(&font.kbts_font)
 	}
+
+	state.buckets[BUCKET_INDEX] = font
 
 	ok = true
 	return
@@ -130,7 +134,7 @@ _from_id :: proc(id: ID) -> ^Font {
 	for font != nil {
 		if font.hash == hash {
 			if font.error != nil {
-				return nil
+				return _from_id(DEFAULT_ID)
 			}
 
 			return font
@@ -139,7 +143,7 @@ _from_id :: proc(id: ID) -> ^Font {
 		font = font.hash_next
 	}
 
-	return nil
+	return _from_id(DEFAULT_ID)
 }
 
 // NOTE: This was written with the idea of immediate mode and to not report duplicate errors
@@ -184,6 +188,8 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 		font.error = ft_err
 		return DEFAULT_ID
 	}
+
+	ft.Set_Pixel_Sizes(font.ft_face, 0, 16)
 
 	font.kbts_font = kbts.FontFromMemory(font.data, c.int(font.face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
 	if font.kbts_font.Error != .NONE {
@@ -252,5 +258,37 @@ from_path :: proc(path: string, face_index: int) -> ID {
 		}
 
 		bucket = &bucket^.hash_next
+	}
+}
+
+shape_text :: proc(font_id: ID, text: string) {
+	font := _from_id(font_id)
+
+	_ = kbts.ShapePushFont(state.kbts_ctx, &font.kbts_font)
+	defer _ = kbts.ShapePopFont(state.kbts_ctx)
+
+	{
+		kbts.ShapeBegin(state.kbts_ctx, .DONT_KNOW, .DONT_KNOW)
+		defer kbts.ShapeEnd(state.kbts_ctx)
+
+		kbts.ShapePushFeature(state.kbts_ctx, .kern, 0)
+		defer _ = kbts.ShapePopFeature(state.kbts_ctx, .kern)
+
+		kbts.ShapeUtf8(state.kbts_ctx, text, .CODEPOINT_INDEX)
+	}
+
+
+	for {
+		run := kbts.ShapeRun(state.kbts_ctx) or_break
+
+		if .LINE_HARD in run.Flags {
+			fmt.println("new line")
+		}
+
+		for glyph in kbts.GlyphIteratorNext(&run.Glyphs) {
+			ft.Load_Glyph(font.ft_face, u32(glyph.Id), ft.load_flags({ .NO_HINTING, .RENDER }))
+
+			fmt.printfln("Glyph: %v", glyph)
+		}
 	}
 }
