@@ -1,12 +1,12 @@
 package root_font
 
-import "core:mem"
-import "core:strings"
-import "core:c"
 import "base:runtime"
 
+import "core:c"
 import "core:os"
 import "core:log"
+import "core:mem"
+import "core:strings"
 import "core:mem/virtual"
 import "core:hash/xxhash"
 
