@@ -3,13 +3,14 @@ package root
 import "core:os"
 import "core:log"
 
-import "font"
+import F "font"
 import W "window"
+import R "render"
 
 main :: proc() {
 	context.logger = log.create_console_logger()
 
-	if !font.init() {
+	if !F.init() {
 		os.exit(1)
 	}
 
@@ -19,6 +20,10 @@ main :: proc() {
 	}) {
 		os.exit(1)
 	}
+
+	R.init()
+
+	R.texture_from_size({ 1024, 1024 })
 
 	run := true
 	for run {
