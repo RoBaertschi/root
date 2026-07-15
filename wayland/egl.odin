@@ -1,5 +1,6 @@
 package wayland
 foreign import wl_egl_lib "system:wayland-egl"
+import "core:c"
 
 egl_window :: struct {}
 
@@ -7,7 +8,7 @@ egl_window :: struct {}
 @(default_calling_convention="c")
 @(link_prefix="wl_")
 foreign wl_egl_lib {
-	egl_window_create :: proc(surface: ^surface, width: int, height: int) -> ^egl_window ---
+	egl_window_create :: proc(surface: ^surface, width: c.int, height: c.int) -> ^egl_window ---
 
 	egl_window_destroy :: proc(window: ^egl_window) ---
 
@@ -17,7 +18,7 @@ foreign wl_egl_lib {
 	rows of pixels to remove from the top/left of the surface, when a
 	surface spontaneously (programmatically by the client, not a user or
 	server performed resize) changes size. */
-	egl_window_resize :: proc(window: ^egl_window, width: int, height: int, dx: int, dy: int) ---
+	egl_window_resize :: proc(window: ^egl_window, width: c.int, height: c.int, dx: c.int, dy: c.int) ---
 
-	egl_window_get_attached_size :: proc(window: ^egl_window, width: ^int, height: ^int) ---
+	egl_window_get_attached_size :: proc(window: ^egl_window, width: ^c.int, height: ^c.int) ---
 }
