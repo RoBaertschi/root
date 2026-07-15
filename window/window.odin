@@ -59,6 +59,14 @@ event_list_iterate :: proc(it: ^Event_List_Iterator) -> (ev: Event, node: ^Event
 	return
 }
 
+Window_Flag :: enum {
+	Maximize_Supported,
+	Minimize_Supported,
+	Decoration_Context_Menu_Supported,
+}
+
+Window_Flags :: bit_set[Window_Flag]
+
 @private
 state_allocator :: proc() -> runtime.Allocator {
 	return _state_allocator()
@@ -79,4 +87,8 @@ frame :: proc() {
 
 events :: proc() -> ^Event_List {
 	return _events()
+}
+
+flags :: proc() -> Window_Flags {
+	return _flags()
 }

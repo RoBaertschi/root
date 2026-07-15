@@ -16,6 +16,7 @@ State :: struct {
 	ctx:         runtime.Context,
 	window_size: [2]i32,
 	arena:       virtual.Arena,
+	flags:       Window_Flags,
 	events:      Event_List,
 
 	display:     ^wl.display,
@@ -76,6 +77,26 @@ xdg_toplevel_listener := xdg.toplevel_listener{
 			},
 		)
 	},
+	configure_bounds = proc "c"(data: rawptr, toplevel: ^xdg.toplevel, width: i32, height: i32) {
+		state.window_size = { width, height }
+	},
+	wm_capabilities = proc "c"(data: rawptr, toplevel: ^xdg.toplevel, capabilities_: wl.array) {
+		caps := ([^]u32)(capabilities_.data)[:capabilities_.size / size_of(u32)]
+
+		state.flags = {}
+
+		for cap in caps {
+			switch xdg.toplevel_wm_capabilities(cap) {
+			case .window_menu:
+				state.flags += {.Decoration_Context_Menu_Supported}
+			case .maximize:
+				state.flags += {.Maximize_Supported}
+			case .minimize:
+				state.flags += {.Minimize_Supported}
+			case .fullscreen: // ignore
+			}
+		}
+	},
 }
 
 @private
@@ -105,7 +126,8 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	state = {}
 
 	context.logger = log.create_console_logger(ident = "WINDOW")
-	state.ctx = context
+	state.ctx   = context
+	state.flags = { .Maximize_Supported, .Minimize_Supported, .Decoration_Context_Menu_Supported }
 
 	state.display = wl.display_connect(nil)
 	if state.display == nil {
@@ -127,7 +149,7 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 			case wl.compositor_interface.name:
 				state.compositor = cast(^wl.compositor)wl.registry_bind(registry, name, &wl.compositor_interface, version)
 			case xdg.wm_base_interface.name:
-				state.xdg_wm_base = cast(^xdg.wm_base)wl.registry_bind(registry, name, &xdg.wm_base_interface, version)
+				state.xdg_wm_base = cast(^xdg.wm_base)wl.registry_bind(registry, name, &xdg.wm_base_interface, min(version, 5))
 				xdg.wm_base_add_listener(state.xdg_wm_base, &xdg_wm_base_listener, nil)
 			// case:
 			// 	log.debugf("unhandled global %v:%v@%v", interface_, version, name)
@@ -279,4 +301,9 @@ _events :: proc() -> ^Event_List {
 	}
 
 	return &state.events
+}
+
+@private
+_flags :: proc() -> Window_Flags {
+	return state.flags
 }

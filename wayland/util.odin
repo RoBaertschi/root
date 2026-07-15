@@ -22,8 +22,8 @@ interface :: struct {
    events: [^]message,
 }
 array :: struct {
-   size: i64,
-   alloc: i64,
+   size: uint,
+   alloc: uint,
    data: rawptr,
 }
 

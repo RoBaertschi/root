@@ -1,7 +1,5 @@
 package root
 
-import "base:intrinsics"
-import "core:fmt"
 import "core:os"
 import "core:log"
 
