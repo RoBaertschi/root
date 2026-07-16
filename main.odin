@@ -1,25 +1,23 @@
 package root
 
+import "core:fmt"
 import "core:os"
 import "core:log"
 
 import F "font"
 import W "window"
 import R "render"
+import B "base"
 
 main :: proc() {
-	context.logger = log.create_console_logger()
+	temp := B.TEMP_ALLOCATOR_GUARD()
+	context.logger = log.create_console_logger(allocator = temp)
 
 	if !F.init() {
 		os.exit(1)
 	}
 
 	font := F.from_path("/usr/share/fonts/noto/NotoSans-Regular.ttf", 0)
-
-	// F.shape_text(font, "Hello World!^a â ö یکအမည်မရှိیک")
-	// if true {
-	// 	return
-	// }
 
 	if !W.init({
 		size  = { 800, 600 },
@@ -28,9 +26,27 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	R.init()
+	if !R.init() {
+		os.exit(1)
+	}
 
-	R.texture_from_size({ 1024, 1024 })
+	// gl, lines := F.shape_text(font, "Hello World!^a â ö یکအမည်မရှိیک", temp)
+	// gl, lines := F.shape_text(font, 16, "Hello World!", temp)
+	// if true {
+	// 	for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
+	// 		fmt.println(render_glyph)
+	// 	}
+	// }
+	// gl, lines = F.shape_text(font, 32, "Hello World!", temp)
+	// if true {
+	// 	for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
+	// 		fmt.println(render_glyph)
+	// 	}
+	//
+	// 	return
+	// }
+
+	// R.texture_from_size({ 1024, 1024 })
 
 	run := true
 	for run {
@@ -45,6 +61,9 @@ main :: proc() {
 			}
 		}
 
+		R.rect({ pos = { 10, 10 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+
+		R.frame()
 		W.frame()
 	}
 

@@ -19,9 +19,9 @@ Event_Node :: struct {
 }
 
 Event_List :: struct {
-	events:       list.List,
-	free_list:    list.List,
-	count:        int,
+	events:    list.List,
+	free_list: list.List,
+	len:       int,
 }
 
 event_list_push :: proc(el: ^Event_List, ev: Event) -> (ev_node: ^Event_Node) {
@@ -32,14 +32,14 @@ event_list_push :: proc(el: ^Event_List, ev: Event) -> (ev_node: ^Event_Node) {
 	}
 	ev_node.event = ev
 	list.push_back(&el.events, ev_node)
-	el.count += 1
+	el.len += 1
 	return
 }
 
 event_list_remove :: proc(el: ^Event_List, node: ^Event_Node) {
 	list.remove(&el.events, node)
 	list.push_front(&el.free_list, node)
-	el.count -= 1
+	el.len -= 1
 }
 
 Event_List_Iterator :: struct {

@@ -1,20 +1,44 @@
 package root_render
 
+import "core:fmt"
+import "base:intrinsics"
+import "core:log"
+import "core:container/xar"
 import "core:math/linalg"
 import "base:runtime"
-import "core:container/handle_map"
 import "core:mem/virtual"
 
 import gl "vendor:OpenGL"
 
+import B "../base"
+
 // TODO(robin): blending
 
-State :: struct {
-	arena: virtual.Arena,
-
-	textures:    handle_map.Dynamic_Handle_Map(Texture, Texture_Handle),
-	nil_texture: Texture_Handle,
+Rect :: struct {
+	pos_00: [2]f32,
+	pos_11: [2]f32,
+	color:  Color,
 }
+
+Color :: [4]f32
+
+State :: struct {
+	arena:    virtual.Arena,
+	logger:   runtime.Logger,
+	textures: B.Handle_Map(Texture, Texture_Handle),
+	rects:    xar.Array(Rect, 8),
+
+	vao:      u32,
+	vbo:      u32,
+	vbo_size: int,
+
+	shader_program: u32,
+}
+
+NIL_TEXTURE :: Texture_Handle {}
+
+@rodata
+nil_texture: Texture_Handle
 
 @private
 state: State
@@ -24,10 +48,85 @@ state_allocator :: proc() -> runtime.Allocator {
 	return virtual.arena_allocator(&state.arena)
 }
 
-init :: proc() {
-	handle_map.dynamic_init(&state.textures, state_allocator())
+VERT_SHADER_SOURCE :: #load("vertex.glsl", string)
+FRAG_SHADER_SOURCE :: #load("fragment.glsl", string)
 
-	state.nil_texture = texture_from_data({ 1, 1 }, { 255, 255, 255, 255 })
+@(require_results)
+init :: proc() -> (ok: bool) {
+	state.logger   = log.create_console_logger(ident = "RENDER", allocator = state_allocator())
+	context.logger = state.logger
+
+	B.hm_init(&state.textures, _texture_from_data({ 1, 1 }, { 255, 255, 255, 255 }), state_allocator())
+	xar.init(&state.rects, state_allocator())
+
+	state.shader_program, ok = gl.load_shaders_source(VERT_SHADER_SOURCE, FRAG_SHADER_SOURCE)
+	if !ok {
+		msg, _ := gl.get_last_error_message()
+		log.fatalf("could not compile shader or program: %v", msg)
+		return
+	}
+
+	state.vbo_size = size_of(Rect) * 64
+
+	gl.GenVertexArrays(1, &state.vao)
+	gl.GenBuffers(1, &state.vbo)
+
+	gl.BindVertexArray(state.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, state.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, state.vbo_size, nil, gl.DYNAMIC_DRAW)
+
+	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 8 * size_of(f32), 0)
+	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 8 * size_of(f32), 2 * size_of(f32))
+	gl.VertexAttribPointer(2, 4, gl.FLOAT, false, 8 * size_of(f32), 2 * size_of(f32))
+
+	gl.EnableVertexAttribArray(0)
+	gl.EnableVertexAttribArray(1)
+	gl.EnableVertexAttribArray(2)
+
+	gl.VertexAttribDivisor(0, 1)
+	gl.VertexAttribDivisor(1, 1)
+	gl.VertexAttribDivisor(2, 1)
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	ok = true
+	return
+}
+
+frame :: proc() {
+	for state.rects.len > state.vbo_size * size_of(Rect) {
+		state.vbo_size *= 2
+	}
+	gl.BindVertexArray(state.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, state.vbo) // the upload needs the buffer bound
+	gl.BufferData(gl.ARRAY_BUFFER, state.vbo_size, nil, gl.DYNAMIC_DRAW)
+
+	rects := state.rects
+
+	copied := 0
+	for chunk in rects.chunks {
+		if chunk != nil {
+			chunk_cap := uint(1) << 8
+			index_shift := copied >> 8
+			if index_shift > 0 {
+				N :: 8*size_of(uint)-1
+				CLZ :: intrinsics.count_leading_zeros
+				chunk_idx := uint(N-CLZ(index_shift))
+				chunk_cap = 1 << (chunk_idx + 8)
+			}
+
+			fmt.printfln("rendering %v", chunk[:min(rects.len, int(min(chunk_cap, uint(rects.len) - chunk_cap)))])
+			gl.BufferSubData(gl.ARRAY_BUFFER, copied, min(rects.len, int(min(chunk_cap, uint(rects.len) - chunk_cap))) * size_of(Rect), chunk)
+		}
+	}
+
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	gl.UseProgram(state.shader_program)
+	gl.DrawArraysInstanced(gl.TRIANGLES, 0, 4, i32(rects.len))
+	gl.BindVertexArray(0)
+
+	xar.clear(&state.rects)
 }
 
 Texture_Handle :: struct {
@@ -40,16 +139,20 @@ Texture :: struct {
 	id:     u32,
 }
 
-texture_from_data :: proc(size: [2]int, data: []byte) -> Texture_Handle {
-	texture := Texture{}
-
+_texture_from_data :: proc(size: [2]int, data: []byte) -> (texture: Texture) {
 	gl.GenTextures(1, &texture.id)
 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, **linalg.array_cast(size, i32), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
 
-	handle, _ := handle_map.add(&state.textures, texture)
+	return texture
+}
+
+
+texture_from_data :: proc(size: [2]int, data: []byte) -> Texture_Handle {
+	texture   := _texture_from_data(size, data)
+	handle, _ := B.hm_add(&state.textures, texture)
 	return handle
 }
 
@@ -60,7 +163,7 @@ texture_from_size :: proc(size: [2]int) -> Texture_Handle {
 texture_fill_part :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
 	assert(len(data) >= size.x * size.y * 4)
 
-	texture, ok := handle_map.get(&state.textures, handle)
+	texture, ok := B.hm_get(&state.textures, handle)
 	if !ok {
 		return
 	}
@@ -72,7 +175,7 @@ texture_fill_part :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, dat
 texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
 	assert(len(data) >= size.x * size.y * 4)
 
-	texture, ok := handle_map.get(&state.textures, handle)
+	texture, ok := B.hm_get(&state.textures, handle)
 	if !ok {
 		return
 	}
@@ -81,24 +184,48 @@ texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
 }
 
-
-texture_fill_part_alpha_only :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
-	assert(len(data) >= size.x * size.y)
-
-	texture, ok := handle_map.get(&state.textures, handle)
-	if !ok {
-		return
-	}
-
-	gl.BindTexture(gl.TEXTURE_2D, texture.id)
-
-	alpha_only_swizzles := [4]i32{
-		gl.ONE, gl.ONE, gl.ONE, gl.RED,
-	}
-	default_swizzles := [4]i32{
-		gl.RED, gl.GREEN, gl.BLUE, gl.ALPHA,
-	}
-	gl.TexParameteriv(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_RGBA, &alpha_only_swizzles[0])
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.R8, gl.UNSIGNED_BYTE, raw_data(data))
-	gl.TexParameteriv(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_RGBA, &default_swizzles[0])
+// ptr valid for the whole frame, this is for immediate mode
+rect_empty :: proc() -> ^Rect {
+	return rect_from_b_rect_with_color({}, { 0, 0, 0, 1 })
 }
+
+rect_from_b_rect :: proc(r: B.Rect(f32)) -> ^Rect {
+	return rect_from_b_rect_with_color(r, { 0, 0, 0, 1 })
+}
+
+rect_from_b_rect_with_color :: proc(r: B.Rect(f32), color: Color) -> ^Rect {
+	ptr, _ := xar.push_back_elem_and_get_ptr(
+		&state.rects,
+		Rect {
+			pos_00 = r.pos,
+			pos_11 = r.pos + r.size,
+			color  = color,
+		},
+	)
+	return ptr
+}
+
+rect :: proc{
+	rect_empty,
+	rect_from_b_rect,
+	rect_from_b_rect_with_color,
+}
+
+// texture_fill_part_alpha_only :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
+// 	assert(len(data) >= size.x * size.y)
+//
+// 	texture, ok := B.hm_get(&state.textures, handle)
+// 	if !ok {
+// 		return
+// 	}
+//
+// 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
+//
+// 	alpha_only_swizzles := [4]i32{
+// 		gl.ONE, gl.ONE, gl.ONE, gl.RED,
+// 	}
+// 	default_swizzles := [4]i32{
+// 		gl.RED, gl.GREEN, gl.BLUE, gl.ALPHA,
+// 	}
+// 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.RED, gl.UNSIGNED_BYTE, raw_data(data))
+// }
