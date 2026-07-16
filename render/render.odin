@@ -7,6 +7,8 @@ import "core:mem/virtual"
 
 import gl "vendor:OpenGL"
 
+// TODO(robin): blending
+
 State :: struct {
 	arena: virtual.Arena,
 
@@ -45,7 +47,7 @@ texture_from_data :: proc(size: [2]int, data: []byte) -> Texture_Handle {
 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, **linalg.array_cast(size, i32), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, **linalg.array_cast(size, i32), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
 
 	handle, _ := handle_map.add(&state.textures, texture)
 	return handle
@@ -65,4 +67,38 @@ texture_fill_part :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, dat
 
 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
+}
+
+texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
+	assert(len(data) >= size.x * size.y * 4)
+
+	texture, ok := handle_map.get(&state.textures, handle)
+	if !ok {
+		return
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, texture.id)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
+}
+
+
+texture_fill_part_alpha_only :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
+	assert(len(data) >= size.x * size.y)
+
+	texture, ok := handle_map.get(&state.textures, handle)
+	if !ok {
+		return
+	}
+
+	gl.BindTexture(gl.TEXTURE_2D, texture.id)
+
+	alpha_only_swizzles := [4]i32{
+		gl.ONE, gl.ONE, gl.ONE, gl.RED,
+	}
+	default_swizzles := [4]i32{
+		gl.RED, gl.GREEN, gl.BLUE, gl.ALPHA,
+	}
+	gl.TexParameteriv(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_RGBA, &alpha_only_swizzles[0])
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.R8, gl.UNSIGNED_BYTE, raw_data(data))
+	gl.TexParameteriv(gl.TEXTURE_2D, gl.TEXTURE_SWIZZLE_RGBA, &default_swizzles[0])
 }

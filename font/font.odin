@@ -1,5 +1,10 @@
 package root_font
 
+import "core:math/linalg"
+import "core:math/bits"
+import "core:slice"
+import "core:bytes"
+import "core:hash"
 import "core:fmt"
 import "base:runtime"
 
@@ -46,16 +51,27 @@ Font :: struct {
 	kbts_font: kbts.font,
 }
 
+Glyph_Key :: struct {
+	font:      ID,
+	font_size: u16,
+	id:        u16,
+}
+
 Glyph :: struct {
-	atlas:          ^Atlas,
-	id:             u16,
+	using key: Glyph_Key,
+
+	hash_next: ^Glyph,
+	hash:      u64,
+
 	used_rect:      B.Rect(u16),
 	allocated_rect: B.Rect(u16),
 }
 
 Atlas_Node :: struct {
-	rect:     B.Rect(u16),
-	children: [B.Corner]^Atlas_Node,
+	children:        [B.Corner]^Atlas_Node,
+	used_rect_count: int, // used sub-rects in children
+	rect:            B.Rect(u16),
+	glyph:           ^Glyph, // nil if not used
 }
 
 Atlas :: struct {
@@ -71,8 +87,9 @@ State :: struct {
 	_allocator: runtime.Allocator,
 
 	arena:      virtual.Arena,
-	buckets:    []^Font,
+	font_map:   []^Font,
 
+	glyph_map:     []^Glyph,
 	glyph_atlases: [dynamic; 8]Atlas,
 }
 
@@ -82,6 +99,9 @@ state_allocator :: proc() -> runtime.Allocator {
 }
 
 state: State
+
+@(rodata)
+nil_glyph: Glyph
 
 @(private="file")
 default_font_data := #load("embed/JetBrainsMono-Regular.ttf")
@@ -115,10 +135,12 @@ init :: proc() -> (ok: bool) {
 		state.kbts_ctx = nil
 	}
 
-	INITIAL_BUCKET_SIZE :: 64
-	state.buckets = make([]^Font, INITIAL_BUCKET_SIZE)
+	INITIAL_FONT_MAP_SIZE :: 64
+	state.font_map = make([]^Font, INITIAL_FONT_MAP_SIZE, allocator = state_allocator())
+	INITIAL_GLYPH_MAP_SIZE :: 1024
+	state.glyph_map = make([]^Glyph, INITIAL_GLYPH_MAP_SIZE, allocator = state_allocator())
 
-	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_BUCKET_SIZE)
+	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_FONT_MAP_SIZE)
 
 	font, _ := virtual.new(&state.arena, Font)
 
@@ -140,7 +162,7 @@ init :: proc() -> (ok: bool) {
 		kbts.FreeFont(&font.kbts_font)
 	}
 
-	state.buckets[BUCKET_INDEX] = font
+	state.font_map[BUCKET_INDEX] = font
 
 	ok = true
 	return
@@ -151,7 +173,7 @@ _from_id :: proc(id: ID) -> ^Font {
 	B.perf_scoped()
 
 	hash := u128(id)
-	font := state.buckets[hash % u128(len(state.buckets))]
+	font := state.font_map[hash % u128(len(state.font_map))]
 	for font != nil {
 		if font.hash == hash {
 			if font.error != nil {
@@ -260,7 +282,7 @@ from_path :: proc(path: string, face_index: int) -> ID {
 		hash = 1
 	}
 
-	bucket := &state.buckets[hash % u128(len(state.buckets))]
+	bucket := &state.font_map[hash % u128(len(state.font_map))]
 	for {
 		if bucket^ == nil {
 			return _push_font(bucket, hash, font_path, face_index)
@@ -312,4 +334,158 @@ shape_text :: proc(font_id: ID, text: string) {
 			fmt.printfln("Glyph: %v", glyph)
 		}
 	}
+}
+
+glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
+	h := hash.fnv64a(slice.to_bytes([]Glyph_Key{ key }))
+	bucket := &state.glyph_map[uint(h) % len(state.font_map)]
+	for  {
+		if bucket^ == nil {
+			font := _from_id(key.font)
+
+			if err := ft.Load_Glyph(font.ft_face, u32(key.id), ft.load_flags({ .RENDER, .NO_HINTING })); err != nil {
+				log.warnf("could not load and render glyph id %v: %v(%v)", key.id, ft.Error_String(err), err)
+
+				if key.id == 0 {
+					return &nil_glyph
+				}
+
+				return glyph_map_get({ font = key.font, font_size = key.font_size, id = 0 })
+			}
+
+			if font.ft_face.glyph.bitmap.width > bits.U16_MAX || font.ft_face.glyph.bitmap.rows > bits.U16_MAX {
+				if key.id == 0 {
+					return &nil_glyph
+				}
+
+				return glyph_map_get({ font = key.font, font_size = key.font_size, id = 0 })
+			}
+
+			glyph := new(Glyph, allocator = state_allocator())
+
+			glyph.key  = key
+			glyph.hash = h
+
+			found      := false
+			glyph_size := [2]u16{ u16(font.ft_face.glyph.bitmap.width), u16(font.ft_face.glyph.bitmap.rows) }
+
+			for atlas in state.glyph_atlases {
+				node := atlas_find_and_take_fitting_node_for_size(atlas.root, glyph_size)
+				if node == nil {
+					continue
+				}
+
+				found                = true
+				node.glyph           = glyph
+				glyph.allocated_rect = node.rect
+				glyph.used_rect      = { node.rect.pos, glyph_size }
+
+				break
+			}
+
+			if !found {
+				idx := len(state.glyph_atlases)
+
+				atlas := Atlas{}
+
+				ATLAS_SIZE :: 1024
+
+				atlas.size      = { ATLAS_SIZE, ATLAS_SIZE }
+				atlas.texture   = R.texture_from_size(linalg.array_cast(atlas.size, int))
+				atlas.root      = new(Atlas_Node, allocator = state_allocator())
+
+				atlas.root.rect.size = atlas.size
+
+				append(&state.glyph_atlases, atlas)
+
+				node := atlas_find_and_take_fitting_node_for_size(atlas.root, glyph_size)
+				if node == nil {
+					// helpless and probably a bug
+					log.errorf("could not allocate a well sized glyph in a new buffer")
+
+					return &nil_glyph
+				}
+				node.glyph           = glyph
+				glyph.allocated_rect = node.rect
+				glyph.used_rect      = { node.rect.pos, glyph_size }
+			}
+
+			bucket^ = glyph
+			return glyph
+		}
+
+		if bucket^.hash == h && bucket^.key == key {
+			return bucket^
+		}
+
+		bucket = &bucket^.hash_next
+	}
+}
+
+atlas_upload_glyph :: proc(atlas: ^Atlas, glyph: ^Glyph, glyph_slot: ^ft.GlyphSlot) {
+	bitmap := &glyph_slot.bitmap
+
+	switch glyph_slot.bitmap.pixel_mode {
+	case .MONO:  return
+	case .GRAY:  return
+	case .GRAY2: return
+	case .GRAY4: return
+	case .LCD:   return
+	case .LCD_V: return
+	case .BGRA:
+		width_bytes := int(bitmap.width * 4)
+
+		buffer_size := int(bitmap.rows) * width_bytes
+		temp := B.TEMP_ALLOCATOR_GUARD()
+		buffer := make([]u8, buffer_size, allocator = temp)
+
+		pos := 0
+
+		for i in 0..<int(bitmap.rows) {
+			copy(buffer[i*width_bytes:], bitmap.buffer[pos:pos+width_bytes])
+
+			pos += int(bitmap.pitch)
+		}
+
+		R.texture_fill_part_bgra(atlas.texture, linalg.array_cast(glyph.used_rect.pos, int), linalg.array_cast(glyph.used_rect.size, int), buffer)
+	case .MAX:
+	case .NONE: return
+	}
+}
+
+atlas_find_and_take_fitting_node_for_size :: proc(node: ^Atlas_Node, glyph_size: [2]u16) -> ^Atlas_Node {
+	if node.rect.size.x < glyph_size.x || node.rect.size.y < glyph_size.y {
+		return nil
+	}
+
+	if node.glyph != nil {
+		return nil
+	}
+
+	if node.rect.size.x / 2 < glyph_size.x || node.rect.size.y / 2 < glyph_size.y {
+		if node.used_rect_count > 0 {
+			return nil
+		}
+
+		return node
+	}
+
+	for &child, corner in node.children {
+		if child == nil {
+			child = new(Atlas_Node, allocator = state_allocator())
+
+			child.rect = {
+				pos  = node.rect.pos + (B.corner_vec(corner, u16) * (node.rect.size / 2)),
+				size = node.rect.size / 2,
+			}
+		}
+
+		new_node := atlas_find_and_take_fitting_node_for_size(child, glyph_size)
+		if new_node != nil {
+			node.used_rect_count += 1
+			return new_node
+		}
+	}
+
+	return nil
 }
