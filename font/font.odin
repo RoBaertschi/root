@@ -11,8 +11,9 @@ import "core:strings"
 import "core:mem/virtual"
 import "core:hash/xxhash"
 
-import "../base"
-import ft "../freetype/"
+import B "../base"
+import R "../render"
+import ft "../freetype"
 
 import kbts "vendor:kb_text_shape"
 
@@ -33,7 +34,7 @@ Font :: struct {
 	hash_next: ^Font,
 	hash:      u128,
 
-	// error != nil indicates invalid font
+	// error != nil indicates an invalid font
 	error: union{ft.Error, os.Error, kbts.load_font_error},
 
 	path:       string,
@@ -45,6 +46,24 @@ Font :: struct {
 	kbts_font: kbts.font,
 }
 
+Glyph :: struct {
+	atlas:          ^Atlas,
+	id:             u16,
+	used_rect:      B.Rect(u16),
+	allocated_rect: B.Rect(u16),
+}
+
+Atlas_Node :: struct {
+	rect:     B.Rect(u16),
+	children: [B.Corner]^Atlas_Node,
+}
+
+Atlas :: struct {
+	texture: R.Texture_Handle,
+	root:    ^Atlas_Node,
+	size:    [2]u16,
+}
+
 State :: struct {
 	logger:     runtime.Logger,
 	ft_library: ^ft.Library,
@@ -53,6 +72,8 @@ State :: struct {
 
 	arena:      virtual.Arena,
 	buckets:    []^Font,
+
+	glyph_atlases: [dynamic; 8]Atlas,
 }
 
 @private
@@ -66,7 +87,7 @@ state: State
 default_font_data := #load("embed/JetBrainsMono-Regular.ttf")
 
 init :: proc() -> (ok: bool) {
-	base.perf_scoped()
+	B.perf_scoped()
 
 	state = {}
 
@@ -127,7 +148,7 @@ init :: proc() -> (ok: bool) {
 
 // NOTE: internal, invalid with INVALID_ID
 _from_id :: proc(id: ID) -> ^Font {
-	base.perf_scoped()
+	B.perf_scoped()
 
 	hash := u128(id)
 	font := state.buckets[hash % u128(len(state.buckets))]
@@ -207,11 +228,11 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 from_path :: proc(path: string, face_index: int) -> ID {
 	face_index := face_index
 
-	base.perf_scoped()
+	B.perf_scoped()
 
 	context.logger = state.logger
 
-	temp := base.TEMP_ALLOCATOR_GUARD()
+	temp := B.TEMP_ALLOCATOR_GUARD()
 
 	// NOTE(robin): Perf this is meassured to be around 2 micro seconds
 	//              If we find ourself calling `from_path` 100-1000's of times per frame
