@@ -1,5 +1,6 @@
 package root_window
 
+import "core:math/linalg"
 import "core:math/bits"
 import "core:strings"
 import "core:log"
@@ -241,6 +242,7 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	ctx_attributes := [?]i32{
 		egl.CONTEXT_MAJOR_VERSION, 4,
 		egl.CONTEXT_MINOR_VERSION, 6,
+		// egl.CONTEXT_OPENGL_DEBUG,  1,
 		egl.NONE,
 	}
 	state.egl_context = egl.CreateContext(state.egl_display, config, egl.NO_CONTEXT, &ctx_attributes[0])
@@ -275,6 +277,8 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 		return
 	}
 
+	// egl.SwapInterval(state.egl_display, 0)
+
 	gl.load_up_to(4, 6, proc(ptr: rawptr, s: cstring) {
 		p := egl.GetProcAddress(s)
 		(^rawptr)(ptr)^ = p
@@ -289,8 +293,6 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 
 @private
 _frame :: proc() {
-	gl.ClearColor(1, 1, 1, 1)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
 	egl.SwapBuffers(state.egl_display, state.egl_surface)
 }
 
@@ -306,4 +308,9 @@ _events :: proc() -> ^Event_List {
 @private
 _flags :: proc() -> Window_Flags {
 	return state.flags
+}
+
+@private
+_size :: proc() -> [2]int {
+	return linalg.array_cast(state.window_size, int)
 }

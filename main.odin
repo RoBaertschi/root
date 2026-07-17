@@ -1,5 +1,6 @@
 package root
 
+import "core:math/linalg"
 import "core:fmt"
 import "core:os"
 import "core:log"
@@ -61,9 +62,13 @@ main :: proc() {
 			}
 		}
 
-		R.rect({ pos = { 10, 10 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+		for x in 0..<20 {
+			for y in 0..<20 {
+				R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+			}
+		}
 
-		R.frame()
+		R.frame(W.size())
 		W.frame()
 	}
 

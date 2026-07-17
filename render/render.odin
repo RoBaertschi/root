@@ -28,9 +28,10 @@ State :: struct {
 	textures: B.Handle_Map(Texture, Texture_Handle),
 	rects:    xar.Array(Rect, 8),
 
-	vao:      u32,
-	vbo:      u32,
-	vbo_size: int,
+	vao:         u32,
+	vbo:         u32,
+	ebo:         u32,
+	buffer_size: int,
 
 	shader_program: u32,
 }
@@ -66,18 +67,21 @@ init :: proc() -> (ok: bool) {
 		return
 	}
 
-	state.vbo_size = size_of(Rect) * 64
+	state.buffer_size = 64
 
 	gl.GenVertexArrays(1, &state.vao)
 	gl.GenBuffers(1, &state.vbo)
+	gl.GenBuffers(1, &state.ebo)
 
 	gl.BindVertexArray(state.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, state.vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, state.vbo_size, nil, gl.DYNAMIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, state.buffer_size * size_of(Rect), nil, gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, state.ebo)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, state.buffer_size * 6 * size_of(u16), nil, gl.DYNAMIC_DRAW)
 
 	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, 8 * size_of(f32), 0)
 	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 8 * size_of(f32), 2 * size_of(f32))
-	gl.VertexAttribPointer(2, 4, gl.FLOAT, false, 8 * size_of(f32), 2 * size_of(f32))
+	gl.VertexAttribPointer(2, 4, gl.FLOAT, false, 8 * size_of(f32), 4 * size_of(f32))
 
 	gl.EnableVertexAttribArray(0)
 	gl.EnableVertexAttribArray(1)
@@ -93,15 +97,26 @@ init :: proc() -> (ok: bool) {
 	return
 }
 
-frame :: proc() {
-	for state.rects.len > state.vbo_size * size_of(Rect) {
-		state.vbo_size *= 2
+frame :: proc(window_size: [2]int) {
+	gl.Viewport(0, 0, **linalg.array_cast(window_size, i32))
+
+	for state.rects.len > state.buffer_size {
+		state.buffer_size *= 2
 	}
 	gl.BindVertexArray(state.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, state.vbo) // the upload needs the buffer bound
-	gl.BufferData(gl.ARRAY_BUFFER, state.vbo_size, nil, gl.DYNAMIC_DRAW)
+	gl.BufferData(gl.ARRAY_BUFFER, state.buffer_size * size_of(Rect), nil, gl.DYNAMIC_DRAW)
 
 	rects := state.rects
+
+	temp := B.TEMP_ALLOCATOR_GUARD()
+	temp_data := make([]u16, rects.len * 6, allocator = temp)
+
+	for i in 0..<rects.len {
+		copy(temp_data[i*6:], []u16{ 0, 1, 2, 1, 2, 3 })
+	}
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, state.buffer_size * 6 * size_of(u16), nil, gl.DYNAMIC_DRAW)
+	gl.BufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, rects.len * 6 * size_of(u16), raw_data(temp_data))
 
 	copied := 0
 	for chunk in rects.chunks {
@@ -115,15 +130,22 @@ frame :: proc() {
 				chunk_cap = 1 << (chunk_idx + 8)
 			}
 
-			fmt.printfln("rendering %v", chunk[:min(rects.len, int(min(chunk_cap, uint(rects.len) - chunk_cap)))])
-			gl.BufferSubData(gl.ARRAY_BUFFER, copied, min(rects.len, int(min(chunk_cap, uint(rects.len) - chunk_cap))) * size_of(Rect), chunk)
+			to_copy := min(int(chunk_cap), rects.len - copied)
+
+			gl.BufferSubData(gl.ARRAY_BUFFER, copied * size_of(Rect), to_copy * size_of(Rect), chunk)
+
+			copied += to_copy
 		}
 	}
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
+	gl.ClearColor(1, 1, 1, 1)
+	gl.Clear(gl.COLOR_BUFFER_BIT)
+
 	gl.UseProgram(state.shader_program)
-	gl.DrawArraysInstanced(gl.TRIANGLES, 0, 4, i32(rects.len))
+	gl.Uniform2f(1, **linalg.array_cast(window_size, f32))
+	gl.DrawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_SHORT, nil, i32(rects.len))
 	gl.BindVertexArray(0)
 
 	xar.clear(&state.rects)

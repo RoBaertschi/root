@@ -92,3 +92,7 @@ events :: proc() -> ^Event_List {
 flags :: proc() -> Window_Flags {
 	return _flags()
 }
+
+size :: proc() -> [2]int {
+	return _size()
+}

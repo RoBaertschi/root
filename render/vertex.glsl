@@ -22,7 +22,7 @@ void main() {
 
     gl_Position = vec4(
         2 * dst_pos.x / res.x - 1,
-        2 * dst_pos.y / res.y - 1,
+        1 - 2 * dst_pos.y / res.y,
         0,
         1
     );
