@@ -24,12 +24,14 @@ Rect :: struct {
 Color :: [4]f32
 
 State :: struct {
-	arena:    virtual.Arena,
-	logger:   runtime.Logger,
-	textures: B.Handle_Map(Texture, Texture_Handle),
+	arena:       virtual.Arena,
+	frame_arena: virtual.Arena,
+	logger:      runtime.Logger,
+	textures:    B.Handle_Map(Texture, Texture_Handle),
 
 	rects:             xar.Array(Rect, 8),
 	textures_per_rect: Texture_Handle,  // one per rect
+	batches:           Batch_List,
 
 	vao:         u32,
 	vbo:         u32,
@@ -49,6 +51,17 @@ state: State
 @private
 state_allocator :: proc() -> runtime.Allocator {
 	return virtual.arena_allocator(&state.arena)
+}
+
+@private
+frame_allocator :: proc() -> runtime.Allocator {
+	return virtual.arena_allocator(&state.frame_arena)
+}
+
+@private
+frame_new :: proc($T: typeid, loc := #caller_location) -> ^T {
+	ptr, _ := virtual.new(&state.frame_arena, T, loc = loc)
+	return ptr
 }
 
 VERT_SHADER_SOURCE :: #load("vertex.glsl", string)
@@ -106,8 +119,10 @@ init :: proc() -> (ok: bool) {
 }
 
 frame :: proc(window_size: [2]int) {
+	// Apply window size
 	gl.Viewport(0, 0, **linalg.array_cast(window_size, i32))
 
+	// Resize buffer
 	for state.rects.len > state.buffer_size {
 		state.buffer_size *= 2
 	}
@@ -115,6 +130,8 @@ frame :: proc(window_size: [2]int) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, state.vbo) // the upload needs the buffer bound
 	gl.BufferData(gl.ARRAY_BUFFER, state.buffer_size * size_of(Rect), nil, gl.DYNAMIC_DRAW)
 
+
+	// Copy all rects into buffer
 	rects := state.rects
 
 	copied := 0
@@ -137,17 +154,30 @@ frame :: proc(window_size: [2]int) {
 		}
 	}
 
+	// General prep
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.ClearColor(1, 1, 1, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
+	// Setup shared batch state
 	gl.UseProgram(state.shader_program)
 	gl.Uniform2f(1, **linalg.array_cast(window_size, f32))
-	gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, i32(rects.len))
+
+	// Draw batches
+	for batch_node := state.batches.first; batch_node != nil; batch_node = batch_node.next {
+		batch := batch_node.batch
+		count := batch.end - batch.start
+
+		gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, i32(batch.start), 4, i32(count))
+	}
+
 	gl.BindVertexArray(0)
 
+	// Reset frame data
 	xar.clear(&state.rects)
+	batch_list_clear(&state.batches)
+	virtual.arena_free_all(&state.frame_arena)
 }
 
 Texture_Handle :: struct {
@@ -215,15 +245,18 @@ rect_from_b_rect :: proc(r: B.Rect(f32)) -> ^Rect {
 }
 
 rect_from_b_rect_with_color :: proc(r: B.Rect(f32), color: Color) -> ^Rect {
-	ptr, _ := xar.push_back_elem_and_get_ptr(
-		&state.rects,
-		Rect {
-			dst_00 = r.pos,
-			dst_11 = r.pos + r.size,
-			color  = color,
+	rect := Rect {
+		dst_00 = r.pos,
+		dst_11 = r.pos + r.size,
+		color  = color,
+	}
+
+	return batch_push_rect(
+		rect,
+		{
+			texture = NIL_TEXTURE,
 		},
 	)
-	return ptr
 }
 
 rect :: proc{
