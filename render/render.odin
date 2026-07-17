@@ -16,8 +16,8 @@ import B "../base"
 Rect :: struct {
 	dst_00:  [2]f32,
 	dst_11:  [2]f32,
-	// src_00:  [2]f32,
-	// src_11:  [2]f32,
+	src_00:  [2]f32,
+	src_11:  [2]f32,
 	color:   Color,
 }
 
@@ -94,8 +94,8 @@ init :: proc() -> (ok: bool) {
 	layout := [?]i32{
 		2,
 		2,
-		// 2,
-		// 2,
+		2,
+		2,
 		4,
 	}
 
@@ -113,6 +113,9 @@ init :: proc() -> (ok: bool) {
 	}
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	ok = true
 	return
@@ -169,7 +172,11 @@ frame :: proc(window_size: [2]int) {
 		batch := batch_node.batch
 		count := batch.end - batch.start
 
-		gl.DrawArraysInstanced(gl.TRIANGLE_STRIP, i32(batch.start), 4, i32(count))
+		texture := B.hm_get(&state.textures, batch.data.texture) or_else B.hm_get(&state.textures, NIL_TEXTURE)
+
+		gl.BindTexture(gl.TEXTURE_2D, texture.id)
+
+		gl.DrawArraysInstancedBaseInstance(gl.TRIANGLE_STRIP, 0, 4, i32(count), u32(batch.start))
 	}
 
 	gl.BindVertexArray(0)
@@ -231,38 +238,27 @@ texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int
 		return
 	}
 
+	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
 }
 
 // ptr valid for the whole frame, this is for immediate mode
-rect_empty :: proc() -> ^Rect {
-	return rect_from_b_rect_with_color({}, { 0, 0, 0, 1 })
-}
-
-rect_from_b_rect :: proc(r: B.Rect(f32)) -> ^Rect {
-	return rect_from_b_rect_with_color(r, { 0, 0, 0, 1 })
-}
-
-rect_from_b_rect_with_color :: proc(r: B.Rect(f32), color: Color) -> ^Rect {
+rect :: proc(r: B.Rect(f32) = {}, color: Color = {}, texture := NIL_TEXTURE, tex_r: B.Rect(f32) = {}) -> ^Rect {
 	rect := Rect {
 		dst_00 = r.pos,
 		dst_11 = r.pos + r.size,
+		src_00 = tex_r.pos,
+		src_11 = tex_r.pos + tex_r.size,
 		color  = color,
 	}
 
 	return batch_push_rect(
 		rect,
 		{
-			texture = NIL_TEXTURE,
+			texture = texture,
 		},
 	)
-}
-
-rect :: proc{
-	rect_empty,
-	rect_from_b_rect,
-	rect_from_b_rect_with_color,
 }
 
 // texture_fill_part_alpha_only :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {

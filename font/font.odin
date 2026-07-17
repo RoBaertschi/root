@@ -512,7 +512,6 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 		}
 
 		if bucket^.hash == h && bucket^.key == key {
-			log.infof("cache hit %v", key)
 			return bucket^
 		}
 

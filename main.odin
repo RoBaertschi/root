@@ -18,7 +18,7 @@ main :: proc() {
 		os.exit(1)
 	}
 
-	font := F.from_path("/usr/share/fonts/noto/NotoSans-Regular.ttf", 0)
+	font := F.from_path("/usr/share/fonts/noto/NotoSansMyanmar-Regular.ttf", 0)
 
 	if !W.init({
 		size  = { 800, 600 },
@@ -62,9 +62,22 @@ main :: proc() {
 			}
 		}
 
+
 		for x in 0..<20 {
 			for y in 0..<20 {
 				R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+			}
+		}
+
+		gl, lines := F.shape_text(font, 64, "Hello World!^a â ö یکအမည်မရှိیک", temp)
+		if true {
+			for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
+				R.rect(
+					r       = { pos = render_glyph.pos, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
+					color   = { 0, 0, 1, 1 },
+					tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+					texture = render_glyph.glyph.atlas.texture,
+				)
 			}
 		}
 
