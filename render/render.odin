@@ -1,6 +1,5 @@
 package root_render
 
-import "base:intrinsics"
 import "core:log"
 import "core:container/xar"
 import "core:math/linalg"
@@ -14,11 +13,13 @@ import B "../base"
 // TODO(robin): blending
 
 Rect :: struct {
-	dst_00:  [2]f32,
-	dst_11:  [2]f32,
-	src_00:  [2]f32,
-	src_11:  [2]f32,
-	color:   Color,
+	dst_00:        [2]f32,
+	dst_11:        [2]f32,
+	src_00:        [2]f32,
+	src_11:        [2]f32,
+	color:         [B.Corner]Color,
+	corner_radius: f32,
+	edge_softness: f32,
 }
 
 Color :: [4]f32
@@ -29,7 +30,7 @@ State :: struct {
 	logger:      runtime.Logger,
 	textures:    B.Handle_Map(Texture, Texture_Handle),
 
-	rects:             xar.Array(Rect, 8),
+	rects:             xar.Array(Rect, 6),
 	textures_per_rect: Texture_Handle,  // one per rect
 	batches:           Batch_List,
 
@@ -96,7 +97,15 @@ init :: proc() -> (ok: bool) {
 		2,
 		2,
 		2,
+
+		// Colors
 		4,
+		4,
+		4,
+		4,
+
+		1,
+		1,
 	}
 
 	stride: i32
@@ -140,14 +149,7 @@ frame :: proc(window_size: [2]int) {
 	copied := 0
 	for chunk in rects.chunks {
 		if chunk != nil {
-			chunk_cap := uint(1) << 8
-			index_shift := copied >> 8
-			if index_shift > 0 {
-				N :: 8*size_of(uint)-1
-				CLZ :: intrinsics.count_leading_zeros
-				chunk_idx := uint(N-CLZ(index_shift))
-				chunk_cap = 1 << (chunk_idx + 8)
-			}
+			chunk_cap := B.xar_chunk_cap(&state.rects, uint(copied))
 
 			to_copy := min(int(chunk_cap), rects.len - copied)
 
@@ -250,7 +252,7 @@ rect :: proc(r: B.Rect(f32) = {}, color: Color = {}, texture := NIL_TEXTURE, tex
 		dst_11 = r.pos + r.size,
 		src_00 = tex_r.pos,
 		src_11 = tex_r.pos + tex_r.size,
-		color  = color,
+		color  = { ._00 = color, ._10 = color, ._01 = color, ._11 = color },
 	}
 
 	return batch_push_rect(

@@ -72,12 +72,17 @@ main :: proc() {
 		gl, lines := F.shape_text(font, 64, "Hello World!^a â ö یکအမည်မရှိیک", temp)
 		if true {
 			for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
-				R.rect(
+				r := R.rect(
 					r       = { pos = render_glyph.pos, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
 					color   = { 0, 0, 1, 1 },
 					tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
 					texture = render_glyph.glyph.atlas.texture,
 				)
+
+				r.color[._00] = { 1, 0, 0, 1 }
+				r.color[._11] = { 1, 0, 0, 1 }
+				r.edge_softness = 0.5
+				r.corner_radius = 4
 			}
 		}
 

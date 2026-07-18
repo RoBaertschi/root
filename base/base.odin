@@ -1,5 +1,6 @@
 package root_base
 
+import "core:container/xar"
 import "core:fmt"
 
 Corner :: enum {
@@ -23,4 +24,9 @@ corner_vec :: proc(corner: Corner, $T: typeid) -> [2]T {
 	case:
 		fmt.panicf("unhandled corner: %v", corner)
 	}
+}
+
+xar_chunk_cap :: #force_inline proc(array: ^xar.Array($T, $SHIFT), index_in_chunk: uint) -> uint {
+	_, _, chunk_cap := xar._meta_get(SHIFT, index_in_chunk)
+	return chunk_cap
 }
