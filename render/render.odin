@@ -13,13 +13,14 @@ import B "../base"
 // TODO(robin): blending
 
 Rect :: struct {
-	dst_00:        [2]f32,
-	dst_11:        [2]f32,
-	src_00:        [2]f32,
-	src_11:        [2]f32,
-	color:         [B.Corner]Color,
-	corner_radius: f32,
-	edge_softness: f32,
+	dst_00:           [2]f32,
+	dst_11:           [2]f32,
+	src_00:           [2]f32,
+	src_11:           [2]f32,
+	color:            [B.Corner]Color,
+	corner_radius:    f32,
+	edge_softness:    f32,
+	border_thickness: f32,
 }
 
 Color :: [4]f32
@@ -78,8 +79,8 @@ init :: proc() -> (ok: bool) {
 
 	state.shader_program, ok = gl.load_shaders_source(VERT_SHADER_SOURCE, FRAG_SHADER_SOURCE)
 	if !ok {
-		msg, _ := gl.get_last_error_message()
-		log.fatalf("could not compile shader or program: %v", msg)
+		msg, _, msg2, _ := gl.get_last_error_messages()
+		log.fatalf("could not compile shader or program: %v\nlink: %v", msg, msg2)
 		return
 	}
 
@@ -104,6 +105,7 @@ init :: proc() -> (ok: bool) {
 		4,
 		4,
 
+		1,
 		1,
 		1,
 	}

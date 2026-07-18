@@ -7,7 +7,8 @@ layout (location = 3) in vec2 dst_center;
 layout (location = 4) in vec2 dst_half_size;
 layout (location = 5) in float corner_radius;
 layout (location = 6) in float edge_softness;
-layout (location = 7) in vec4 color_in;
+layout (location = 7) in float border_thickness;
+layout (location = 8) in vec4 color_in;
 
 layout (location = 0) out vec4 color_out;
 
@@ -35,5 +36,22 @@ void main() {
 
     float sdf_factor = 1.f - smoothstep(0, 2*softness, dist);
 
-    color_out = texture(texture_in, uv) * color_in * sdf_factor;
+    float border_factor = 1.f;
+    if (border_thickness != 0) {
+        vec2 interior_half_size = dst_half_size - vec2(border_thickness);
+
+        float interior_radius_reduce_f = min(interior_half_size.x/dst_half_size.x,
+                                             interior_half_size.y/dst_half_size.y);
+        float interior_corner_radius = (corner_radius * interior_radius_reduce_f * interior_radius_reduce_f);
+
+        float inside_d = RoundedRectSDF(dst_pos,
+                                        dst_center,
+                                        interior_half_size-softness_padding,
+                                        interior_corner_radius);
+
+        float inside_f = smoothstep(0, 2*softness, inside_d);
+        border_factor = inside_f;
+    }
+
+    color_out = color_in * texture(texture_in, uv) * sdf_factor * border_factor;
 }
