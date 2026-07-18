@@ -69,12 +69,14 @@ main :: proc() {
 			}
 		}
 
-		gl, lines := F.shape_text(font, 64, "Hello World!^a â ö یکအမည်မရှိیک", temp)
+		run := F.get_run(0, 64, "Hello World!")
+
+		gl := run.glyphs
 		if true {
 			for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
 				{
 					r := R.rect(
-						r       = { pos = render_glyph.pos, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
+						r       = { pos = render_glyph.pos + { 0, 800 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
 						color   = { 0, 0, 1, 1 },
 						tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
 						texture = render_glyph.glyph.atlas.texture,
@@ -82,28 +84,43 @@ main :: proc() {
 
 					r.color[._00] = { 1, 0, 0, 1 }
 					r.color[._11] = { 1, 0, 0, 1 }
-					r.edge_softness = 0.5
-					r.corner_radius = 4
+					// r.edge_softness = 0.5
+					// r.corner_radius = 4
 				}
-				{
-					r := R.rect(
-						r       = { pos = render_glyph.pos, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
-						color   = { 0, 0, 1, 1 },
-						// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
-						// texture = render_glyph.glyph.atlas.texture,
-					)
 
-					// r.color[._10] = { 1, 0, 0, 1 }
-					// r.color[._01] = { 1, 0, 0, 1 }
-					r.edge_softness = 0.5
+				{
+					fmt.println(run.metrics)
+
+					r := R.rect(
+						r     = { pos = run.metrics.pos + { 0, 800 } - { 2, 2 }, size = run.metrics.size + { 4, 4 } },
+						color = { 0, 0, 1, 1 },
+					)
+					r.color[._00] = { 1, 0, 0, 1 }
+					r.color[._11] = { 1, 0, 0, 1 }
 					r.corner_radius = 4
-					r.border_thickness = 4
+					r.border_thickness = 2
 				}
+
+				// {
+				// 	r := R.rect(
+				// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
+				// 		color   = { 0, 0, 1, 1 },
+				// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+				// 		// texture = render_glyph.glyph.atlas.texture,
+				// 	)
+				//
+				// 	// r.color[._10] = { 1, 0, 0, 1 }
+				// 	// r.color[._01] = { 1, 0, 0, 1 }
+				// 	r.edge_softness = 0.5
+				// 	r.corner_radius = 4
+				// 	r.border_thickness = 4
+				// }
 			}
 		}
 
 		R.frame(W.size())
 		W.frame()
+		F.frame()
 	}
 
 	// proposed api

@@ -7,6 +7,7 @@ import "core:c"
 import "core:os"
 import "core:log"
 import "core:mem"
+import "core:math"
 import "core:hash"
 import "core:slice"
 import "core:strings"
@@ -68,6 +69,7 @@ Glyph :: struct {
 	allocated_rect: B.Rect(u16),
 	bitmap_top:     int,
 	bitmap_left:    int,
+	bbox:           FT.BBox,
 }
 
 Render_Glyph :: struct {
@@ -76,39 +78,53 @@ Render_Glyph :: struct {
 }
 
 Glyph_Node :: struct {
-	using node: list.Node,
-	glyph:      Render_Glyph,
+	next:  ^Glyph_Node,
+	glyph: Render_Glyph,
 }
 
 Glyph_List :: struct {
-	glyphs:    list.List,
-	len:       int,
-	allocator: runtime.Allocator,
-}
-
-glyph_list_init :: proc(gl: ^Glyph_List, allocator: runtime.Allocator) {
-	gl.allocator = allocator
+	first, last: ^Glyph_Node,
+	len:         int,
 }
 
 glyph_list_push :: proc(gl: ^Glyph_List, glyph: Render_Glyph) {
-	node       := new(Glyph_Node, gl.allocator)
-	node.glyph  = glyph
-	list.push_back(&gl.glyphs, node)
+	node: ^Glyph_Node
+	if state.glyph_node_free != nil {
+		node                  = state.glyph_node_free
+		state.glyph_node_free = node.next
+	} else {
+		node = state_new(Glyph_Node)
+	}
+
+	node.glyph = glyph
+	B.sll_insert(&gl.first, &gl.last, node)
 	gl.len += 1
 }
 
+glyph_list_free :: proc(gl: Glyph_List) {
+	for node := gl.first; node != nil; node = node.next {
+		node.next             = state.glyph_node_free
+		state.glyph_node_free = node
+	}
+}
+
 Glyph_List_Iterator :: struct {
-	it: list.Iterator(Glyph_Node),
+	current: ^Glyph_Node,
 }
 
 glyph_list_iterator :: proc(gl: Glyph_List) -> Glyph_List_Iterator {
 	return {
-		it = list.iterator_head(gl.glyphs, Glyph_Node, "node"),
+		current = gl.first,
 	}
 }
 
 glyph_list_iterate :: proc(it: ^Glyph_List_Iterator) -> (glyph: Render_Glyph, ok: bool) {
-	node := list.iterate_next(&it.it) or_return
+	node := it.current
+	if node == nil {
+		return
+	}
+	it.current = node.next
+
 	return node.glyph, true
 }
 
@@ -125,6 +141,27 @@ Atlas :: struct {
 	size:    [2]u16,
 }
 
+Run_Key :: struct {
+	s:         string,
+	font:      ID,
+	font_size: u16,
+}
+
+Run :: struct {
+	// Map
+	key:       Run_Key,
+	hash:      u128,
+	hash_next: ^Run,
+
+	// Lru
+	lru_node:              list.Node,
+	lru_last_access_frame: int,
+
+	// Data
+	glyphs:  Glyph_List,
+	metrics: B.Rect(f32),
+}
+
 State :: struct {
 	logger:     runtime.Logger,
 	ft_library: ^FT.Library,
@@ -136,6 +173,24 @@ State :: struct {
 
 	glyph_map:     []^Glyph,
 	glyph_atlases: [dynamic; 8]Atlas,
+
+	glyph_node_free: ^Glyph_Node,
+
+	run_map:               []^Run,
+	run_lru:               list.List,
+	run_lru_len:           int,
+	run_lru_current_frame: int,
+	run_string_arenas:     [2]virtual.Arena,
+}
+
+@private
+lru_clone_string :: proc(s: string) -> string {
+	return strings.clone(
+		s,
+		allocator = virtual.arena_allocator(
+			&state.run_string_arenas[state.run_lru_current_frame % 2],
+		),
+	)
 }
 
 @private
@@ -196,6 +251,8 @@ init :: proc() -> (ok: bool) {
 	state.font_map = make([]^Font, INITIAL_FONT_MAP_SIZE, allocator = state_allocator())
 	INITIAL_GLYPH_MAP_SIZE :: 1024
 	state.glyph_map = make([]^Glyph, INITIAL_GLYPH_MAP_SIZE, allocator = state_allocator())
+	INITIAL_RUN_MAP_SIZE :: 256
+	state.run_map = make([]^Run, INITIAL_RUN_MAP_SIZE, allocator = state_allocator())
 
 	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_FONT_MAP_SIZE)
 
@@ -227,6 +284,11 @@ init :: proc() -> (ok: bool) {
 
 	ok = true
 	return
+}
+
+frame :: proc() {
+	state.run_lru_current_frame += 1
+	virtual.arena_free_all(&state.run_string_arenas[state.run_lru_current_frame % 2])
 }
 
 // NOTE: internal, invalid with INVALID_ID
@@ -370,7 +432,79 @@ from_path :: proc(path: string, face_index: int) -> ID {
 	}
 }
 
-shape_text :: proc(font_id: ID, font_size: u16, text: string, allocator: runtime.Allocator) -> (gl: Glyph_List, lines: int) {
+get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
+	font_id   := font_id
+	font_size := font_size
+
+	// Hash
+	hash_state: xxhash.XXH3_state
+	xxhash.XXH3_128_reset(&hash_state)
+	xxhash.XXH3_128_update(&hash_state, mem.ptr_to_bytes(&font_id))
+	xxhash.XXH3_128_update(&hash_state, mem.ptr_to_bytes(&font_size))
+	xxhash.XXH3_128_update(&hash_state, transmute([]u8)text)
+	hash := xxhash.XXH3_128_digest(&hash_state)
+
+	key := Run_Key{
+		font      = font_id,
+		font_size = font_size,
+		s         = text,
+	}
+
+	// Map Lookup
+	bucket := &state.run_map[hash % u128(len(state.font_map))]
+	for {
+		if bucket^ == nil {
+			// TODO(robin): add
+
+			key.s = lru_clone_string(text)
+			glyphs, metrics := shape_text(font_id, font_size, text)
+
+			MAX_LRU_ENTRIES :: 1024
+
+			run: ^Run
+			last := container_of(state.run_lru.tail, Run, "lru_node")
+
+			if state.run_lru_len < MAX_LRU_ENTRIES || last.lru_last_access_frame == state.run_lru_current_frame {
+				run                = state_new(Run)
+				state.run_lru_len += 1
+			} else {
+				run = last
+				glyph_list_free(last.glyphs)
+			}
+
+			list.push_front(&state.run_lru, &run.lru_node)
+
+			run.lru_last_access_frame = state.run_lru_current_frame
+			run.key     = key
+			run.glyphs  = glyphs
+			run.metrics = metrics
+			run.hash    = hash
+
+			bucket^ = run
+
+			return run
+		}
+
+		if bucket^.hash == hash && bucket^.key == key {
+			if bucket^.lru_last_access_frame != state.run_lru_current_frame {
+				// Update outdated bucket
+				bucket^.lru_last_access_frame = state.run_lru_current_frame
+
+				// Clone the old string into the new arena
+				bucket^.key.s = lru_clone_string(bucket^.key.s)
+
+				list.remove(&state.run_lru, &bucket^.lru_node)
+				list.push_front(&state.run_lru, &bucket^.lru_node)
+			}
+
+			return bucket^
+		}
+
+		bucket = &bucket^.hash_next
+	}
+}
+
+shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, metrics: B.Rect(f32)) {
 	font := _from_id(font_id)
 
 	context.logger = state.logger
@@ -390,11 +524,13 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string, allocator: runtime
 
 	FT.Set_Pixel_Sizes(font.ft_face, 0, u32(font_size))
 
-	glyph_list_init(&gl, allocator)
 	ascender := f32(font.ft_face.size.metrics.ascender) / 64
 	cursor   := [2]f32{ 0, ascender }
 	line     := 0
 	scale    := f32(font_size) / f32(font.units_per_em)
+
+	p00 := [2]f32{ +math.INF_F32, +math.INF_F32 }
+	p11 := [2]f32{ -math.INF_F32, -math.INF_F32 }
 
 	for {
 		run := kbts.ShapeRun(state.kbts_ctx) or_break
@@ -406,24 +542,39 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string, allocator: runtime
 		}
 
 		for glyph in kbts.GlyphIteratorNext(&run.Glyphs) {
+			origin := [2]f32{
+				cursor.x + f32(glyph.OffsetX) * scale,
+				cursor.y - f32(glyph.OffsetY) * scale,
+			}
+
 			g := glyph_map_get({ font = font_id, font_size = font_size, id = glyph.Id })
 			glyph_list_push(
 				&gl,
 				{
 					glyph = g,
 					pos   = {
-						cursor.x + f32(glyph.OffsetX) * scale + f32(g.bitmap_left),
-						cursor.y - f32(glyph.OffsetY) * scale - f32(g.bitmap_top),
+						origin.x + f32(g.bitmap_left),
+						origin.y - f32(g.bitmap_top),
 					},
 				},
 			)
+
+			p00.x = min(p00.x, origin.x + f32(g.bbox.xMin) / 64)
+			p11.x = max(p11.x, origin.x + f32(g.bbox.xMax) / 64)
+
+			p00.y = min(p00.y, origin.y - f32(g.bbox.yMax) / 64)
+			p11.y = max(p11.y, origin.y - f32(g.bbox.yMin) / 64)
 
 			cursor.y -= f32(glyph.AdvanceY) * scale
 			cursor.x += f32(glyph.AdvanceX) * scale
 		}
 	}
 
-	lines = line + 1
+
+	metrics = {
+		pos  = p00,
+		size = p11 - p00,
+	}
 	return
 }
 
@@ -461,6 +612,8 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 			glyph.hash        = h
 			glyph.bitmap_left = int(font.ft_face.glyph.bitmap_left)
 			glyph.bitmap_top  = int(font.ft_face.glyph.bitmap_top)
+
+			FT.Outline_Get_BBox(&font.ft_face.glyph.outline, &glyph.bbox)
 
 			glyph_size := [2]u16{ u16(font.ft_face.glyph.bitmap.width), u16(font.ft_face.glyph.bitmap.rows) }
 
