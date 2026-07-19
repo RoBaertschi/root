@@ -69,7 +69,7 @@ main :: proc() {
 			}
 		}
 
-		run := F.get_run(0, 64, "Hello World!")
+		run := F.get_run(0, 64, " ")
 
 		gl := run.glyphs
 		if true {
@@ -89,8 +89,6 @@ main :: proc() {
 				}
 
 				{
-					fmt.println(run.metrics)
-
 					r := R.rect(
 						r     = { pos = run.metrics.pos + { 0, 800 } - { 2, 2 }, size = run.metrics.size + { 4, 4 } },
 						color = { 0, 0, 1, 1 },

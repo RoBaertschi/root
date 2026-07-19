@@ -507,6 +507,11 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, metrics: B.Rect(f32)) {
 	font := _from_id(font_id)
 
+	if text == "" {
+		// NOTE: kbts.ShapeUtf8 seems to crash on an empty string, I don't know why but it does.
+		return
+	}
+
 	context.logger = state.logger
 
 	_ = kbts.ShapePushFont(state.kbts_ctx, &font.kbts_font)
@@ -529,8 +534,11 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 	line     := 0
 	scale    := f32(font_size) / f32(font.units_per_em)
 
-	p00 := [2]f32{ +math.INF_F32, +math.INF_F32 }
-	p11 := [2]f32{ -math.INF_F32, -math.INF_F32 }
+	P00_INIT :: [2]f32{ +math.INF_F32, +math.INF_F32 }
+	P11_INIT :: [2]f32{ -math.INF_F32, -math.INF_F32 }
+
+	p00 := P00_INIT
+	p11 := P11_INIT
 
 	for {
 		run := kbts.ShapeRun(state.kbts_ctx) or_break
@@ -570,6 +578,13 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 		}
 	}
 
+	if p00 == P00_INIT {
+		p00 = {}
+	}
+
+	if p11 == P11_INIT {
+		p11 = {}
+	}
 
 	metrics = {
 		pos  = p00,
