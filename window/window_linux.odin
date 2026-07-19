@@ -24,7 +24,11 @@ State :: struct {
 	registry:    ^wl.registry,
 	compositor:  ^wl.compositor,
 	xdg_wm_base: ^xdg.wm_base,
+	seat:        ^wl.seat,
 
+	capabilities:           Seat_Capabilities,
+	pointer:                ^wl.pointer,
+	pointer_pos:            [2]f32,
 	surface:                ^wl.surface,
 	region:                 ^wl.region,
 	xdg_surface:            ^xdg.surface,
@@ -43,6 +47,43 @@ _state_allocator :: proc() -> runtime.Allocator {
 }
 
 state: ^State
+
+Seat_Capability :: enum i32 {
+	pointer,
+	keyboard,
+	touch,
+}
+
+Seat_Capabilities :: bit_set[Seat_Capability; i32]
+
+@private
+wl_pointer_listener := wl.pointer_listener{
+	enter = proc "c"(data: rawptr, pointer: ^wl.pointer, serial_: u32, surface: ^wl.surface, surface_x: wl.fixed_t, surface_y: wl.fixed_t) {
+		if surface == state.surface {
+			state.pointer_pos = { wl.fixed_to_f32(surface_x), wl.fixed_to_f32(surface_y) }
+		}
+	},
+	leave = proc "c"(data: rawptr, pointer: ^wl.pointer, serial_: u32, surface_: ^wl.surface) {},
+	motion = proc "c"(data: rawptr, pointer: ^wl.pointer, time: u32, surface_x: wl.fixed_t, surface_y: wl.fixed_t) {
+		state.pointer_pos = { wl.fixed_to_f32(surface_x), wl.fixed_to_f32(surface_y) }
+	},
+}
+
+@private
+wl_seat_listener := wl.seat_listener{
+	capabilities = auto_cast proc "c"(data: rawptr, seat: ^wl.seat, capabilities: bit_set[Seat_Capability; i32]) {
+		state.capabilities = capabilities
+
+		if .pointer in state.capabilities {
+			state.pointer = wl.seat_get_pointer(seat)
+			wl.pointer_add_listener(state.pointer, &wl_pointer_listener, nil)
+		} else if state.pointer != nil {
+			wl.pointer_release(state.pointer)
+			wl.pointer_destroy(state.pointer)
+		}
+	},
+	name = proc "c"(data: rawptr, seat: ^wl.seat, name_: cstring) {},
+}
 
 @private
 xdg_toplevel_listener := xdg.toplevel_listener{
@@ -147,6 +188,9 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 			switch interface_ {
 			case wl.compositor_interface.name:
 				state.compositor = cast(^wl.compositor)wl.registry_bind(registry, name, &wl.compositor_interface, version)
+			case wl.seat_interface.name:
+				state.seat = cast(^wl.seat)wl.registry_bind(registry, name, &wl.seat_interface, 7)
+				wl.seat_add_listener(state.seat, &wl_seat_listener, nil)
 			case xdg.wm_base_interface.name:
 				state.xdg_wm_base = cast(^xdg.wm_base)wl.registry_bind(registry, name, &xdg.wm_base_interface, min(version, 5))
 				xdg.wm_base_add_listener(state.xdg_wm_base, &xdg_wm_base_listener, nil)
@@ -167,6 +211,11 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 
 	if state.compositor == nil {
 		log.fatal("no wl.compositor, broken compositor?")
+		return
+	}
+
+	if state.seat == nil {
+		log.fatal("no wl.seat, broken compositor?")
 		return
 	}
 

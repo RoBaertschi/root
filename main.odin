@@ -74,7 +74,7 @@ main :: proc() {
 		run := F.get_run(0, 64, text)
 
 		draw_text :: proc(pos: [2]f32, s: string) {
-			run := F.get_run(0, 64, s)
+			run := F.get_run(0, 32, s)
 
 			for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
 				_ = R.rect(
@@ -108,7 +108,7 @@ main :: proc() {
 					// r.edge_softness = 0.5
 					// r.corner_radius = 4
 
-					draw_text(r.dst_00, text[render_glyph.source.start:render_glyph.source.end])
+					draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
 				}
 
 				{
