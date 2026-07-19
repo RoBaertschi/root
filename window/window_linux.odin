@@ -42,7 +42,7 @@ _state_allocator :: proc() -> runtime.Allocator {
 	return virtual.arena_allocator(&state.arena)
 }
 
-state: State
+state: ^State
 
 @private
 xdg_toplevel_listener := xdg.toplevel_listener{
@@ -117,14 +117,12 @@ xdg_wm_base_listener := xdg.wm_base_listener{
 
 @private
 _init :: proc(desc: Init_Description) -> (ok: bool) {
-	base.perf_scoped()
-
 	assert(desc.size.x <= bits.I32_MAX)
 	assert(desc.size.y <= bits.I32_MAX)
 	assert(desc.size.x >= bits.I32_MIN)
 	assert(desc.size.y >= bits.I32_MIN)
 
-	state = {}
+	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
 
 	context.logger = log.create_console_logger(ident = "WINDOW")
 	state.ctx   = context

@@ -1,7 +1,7 @@
 package root
 
-import "core:math/linalg"
 import "core:fmt"
+import "core:math/linalg"
 import "core:os"
 import "core:log"
 
@@ -69,16 +69,37 @@ main :: proc() {
 			}
 		}
 
-		run := F.get_run(0, 64, " ")
+		text := "Yolo!!!!????>= ==="
+
+		run := F.get_run(0, 64, text)
+
+		draw_text :: proc(pos: [2]f32, s: string) {
+			run := F.get_run(0, 64, s)
+
+			for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
+				_ = R.rect(
+					r       = { pos = rglyph.pos + pos, size = linalg.array_cast(rglyph.glyph.used_rect.size, f32) },
+					color   = { 0, 0, 0, 1 },
+					tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
+					texture = rglyph.glyph.atlas.texture,
+				)
+			}
+		}
 
 		gl := run.glyphs
-		if true {
-			for it := F.glyph_list_iterator(gl); render_glyph in F.glyph_list_iterate(&it) {
+		for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
+			glyph_node := grapheme.start
+
+			for i in 0..<grapheme.count {
+				render_glyph := glyph_node.glyph
+
 				{
+					used_rect := B.rect_cast(render_glyph.glyph.used_rect, f32)
+
 					r := R.rect(
-						r       = { pos = render_glyph.pos + { 0, 800 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) },
+						r       = { pos = render_glyph.pos + { 0, 800 }, size = used_rect.size },
 						color   = { 0, 0, 1, 1 },
-						tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+						tex_r   = used_rect,
 						texture = render_glyph.glyph.atlas.texture,
 					)
 
@@ -86,6 +107,8 @@ main :: proc() {
 					r.color[._11] = { 1, 0, 0, 1 }
 					// r.edge_softness = 0.5
 					// r.corner_radius = 4
+
+					draw_text(r.dst_00, text[render_glyph.source.start:render_glyph.source.end])
 				}
 
 				{
@@ -99,21 +122,24 @@ main :: proc() {
 					r.border_thickness = 2
 				}
 
-				// {
-				// 	r := R.rect(
-				// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
-				// 		color   = { 0, 0, 1, 1 },
-				// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
-				// 		// texture = render_glyph.glyph.atlas.texture,
-				// 	)
-				//
-				// 	// r.color[._10] = { 1, 0, 0, 1 }
-				// 	// r.color[._01] = { 1, 0, 0, 1 }
-				// 	r.edge_softness = 0.5
-				// 	r.corner_radius = 4
-				// 	r.border_thickness = 4
-				// }
+				glyph_node = glyph_node.next
 			}
+
+
+			// {
+			// 	r := R.rect(
+			// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
+			// 		color   = { 0, 0, 1, 1 },
+			// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+			// 		// texture = render_glyph.glyph.atlas.texture,
+			// 	)
+			//
+			// 	// r.color[._10] = { 1, 0, 0, 1 }
+			// 	// r.color[._01] = { 1, 0, 0, 1 }
+			// 	r.edge_softness = 0.5
+			// 	r.corner_radius = 4
+			// 	r.border_thickness = 4
+			// }
 		}
 
 		R.frame(W.size())

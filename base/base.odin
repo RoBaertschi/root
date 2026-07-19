@@ -30,3 +30,7 @@ xar_chunk_cap :: #force_inline proc(array: ^xar.Array($T, $SHIFT), index_in_chun
 	_, _, chunk_cap := xar._meta_get(SHIFT, index_in_chunk)
 	return chunk_cap
 }
+
+Range :: struct {
+	start, end: int,
+}

@@ -73,8 +73,9 @@ Glyph :: struct {
 }
 
 Render_Glyph :: struct {
-	glyph: ^Glyph,
-	pos:   [2]f32,
+	glyph:  ^Glyph,
+	pos:    [2]f32,
+	source: B.Range,
 }
 
 Glyph_Node :: struct {
@@ -87,58 +88,20 @@ Glyph_List :: struct {
 	len:         int,
 }
 
-glyph_list_push :: proc(gl: ^Glyph_List, glyph: Render_Glyph) {
-	node: ^Glyph_Node
-	if state.glyph_node_free != nil {
-		node                  = state.glyph_node_free
-		state.glyph_node_free = node.next
-	} else {
-		node = state_new(Glyph_Node)
-	}
-
-	node.glyph = glyph
-	B.sll_insert(&gl.first, &gl.last, node)
-	gl.len += 1
+Grapheme :: struct {
+	range: B.Range,
+	start: ^Glyph_Node,
+	count: int,
 }
 
-glyph_list_free :: proc(gl: Glyph_List) {
-	for node := gl.first; node != nil; node = node.next {
-		node.next             = state.glyph_node_free
-		state.glyph_node_free = node
-	}
+Grapheme_Node :: struct {
+	next:     ^Grapheme_Node,
+	grapheme: Grapheme,
 }
 
-Glyph_List_Iterator :: struct {
-	current: ^Glyph_Node,
-}
-
-glyph_list_iterator :: proc(gl: Glyph_List) -> Glyph_List_Iterator {
-	return {
-		current = gl.first,
-	}
-}
-
-glyph_list_iterate :: proc(it: ^Glyph_List_Iterator) -> (glyph: Render_Glyph, ok: bool) {
-	node := it.current
-	if node == nil {
-		return
-	}
-	it.current = node.next
-
-	return node.glyph, true
-}
-
-Atlas_Node :: struct {
-	children:      [B.Corner]^Atlas_Node,
-	used_rect_len: int, // used sub-rects in children
-	rect:          B.Rect(u16),
-	glyph:         ^Glyph, // nil if not used
-}
-
-Atlas :: struct {
-	texture: R.Texture_Handle,
-	root:    ^Atlas_Node,
-	size:    [2]u16,
+Grapheme_List :: struct {
+	first, last: ^Grapheme_Node,
+	len:         int,
 }
 
 Run_Key :: struct {
@@ -158,8 +121,22 @@ Run :: struct {
 	lru_last_access_frame: int,
 
 	// Data
-	glyphs:  Glyph_List,
-	metrics: B.Rect(f32),
+	glyphs:    Glyph_List,
+	graphemes: Grapheme_List,
+	metrics:   B.Rect(f32),
+}
+
+Atlas_Node :: struct {
+	children:      [B.Corner]^Atlas_Node,
+	used_rect_len: int, // used sub-rects in children
+	rect:          B.Rect(u16),
+	glyph:         ^Glyph, // nil if not used
+}
+
+Atlas :: struct {
+	texture: R.Texture_Handle,
+	root:    ^Atlas_Node,
+	size:    [2]u16,
 }
 
 State :: struct {
@@ -175,6 +152,7 @@ State :: struct {
 	glyph_atlases: [dynamic; 8]Atlas,
 
 	glyph_node_free: ^Glyph_Node,
+	grapheme_free:   ^Grapheme_Node,
 
 	run_map:               []^Run,
 	run_lru:               list.List,
@@ -204,7 +182,7 @@ state_new :: proc($T: typeid, loc := #caller_location) -> ^T {
 	return ptr
 }
 
-state: State
+state: ^State
 
 @rodata
 nil_atlas := Atlas {
@@ -221,7 +199,7 @@ default_font_data := #load("embed/JetBrainsMono-Regular.ttf")
 init :: proc() -> (ok: bool) {
 	B.perf_scoped()
 
-	state = {}
+	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
 
 	state.logger   = log.create_console_logger(ident = "FONT", allocator = state_allocator())
 	context.logger = state.logger
@@ -457,7 +435,7 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 			// TODO(robin): add
 
 			key.s = lru_clone_string(text)
-			glyphs, metrics := shape_text(font_id, font_size, text)
+			glyphs, graphemes, metrics := shape_text(font_id, font_size, text)
 
 			MAX_LRU_ENTRIES :: 1024
 
@@ -475,10 +453,11 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 			list.push_front(&state.run_lru, &run.lru_node)
 
 			run.lru_last_access_frame = state.run_lru_current_frame
-			run.key     = key
-			run.glyphs  = glyphs
-			run.metrics = metrics
-			run.hash    = hash
+			run.key       = key
+			run.glyphs    = glyphs
+			run.metrics   = metrics
+			run.graphemes = graphemes
+			run.hash      = hash
 
 			bucket^ = run
 
@@ -504,7 +483,7 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 	}
 }
 
-shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, metrics: B.Rect(f32)) {
+shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, grl: Grapheme_List, metrics: B.Rect(f32)) {
 	font := _from_id(font_id)
 
 	if text == "" {
@@ -524,7 +503,7 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 		kbts.ShapePushFeature(state.kbts_ctx, .kern, 0)
 		defer _ = kbts.ShapePopFeature(state.kbts_ctx, .kern)
 
-		kbts.ShapeUtf8(state.kbts_ctx, text, .CODEPOINT_INDEX)
+		kbts.ShapeUtf8(state.kbts_ctx, text, .SOURCE_INDEX)
 	}
 
 	FT.Set_Pixel_Sizes(font.ft_face, 0, u32(font_size))
@@ -539,6 +518,8 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 
 	p00 := P00_INIT
 	p11 := P11_INIT
+
+	current_grapheme: Grapheme
 
 	for {
 		run := kbts.ShapeRun(state.kbts_ctx) or_break
@@ -555,8 +536,15 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 				cursor.y - f32(glyph.OffsetY) * scale,
 			}
 
+			source: kbts.shape_codepoint
+			_ = kbts.ShapeGetShapeCodepoint(state.kbts_ctx, glyph.UserIdOrCodepointIndex, &source)
+
+			if gl.last != nil {
+				gl.last.glyph.source.end = int(source.UserId)
+			}
+
 			g := glyph_map_get({ font = font_id, font_size = font_size, id = glyph.Id })
-			glyph_list_push(
+			glyph_node := glyph_list_push(
 				&gl,
 				{
 					glyph = g,
@@ -564,8 +552,23 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 						origin.x + f32(g.bitmap_left),
 						origin.y - f32(g.bitmap_top),
 					},
+					source = {
+						start = int(source.UserId),
+					},
 				},
 			)
+
+			if .GRAPHEME in source.BreakFlags {
+				current_grapheme.range.end = int(source.UserId)
+
+				grapheme_list_push(&grl, current_grapheme)
+
+				current_grapheme.range.start = current_grapheme.range.end
+				current_grapheme.start = glyph_node
+				current_grapheme.count = 0
+			}
+
+			current_grapheme.count += 1
 
 			p00.x = min(p00.x, origin.x + f32(g.bbox.xMin) / 64)
 			p11.x = max(p11.x, origin.x + f32(g.bbox.xMax) / 64)
@@ -577,6 +580,13 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 			cursor.x += f32(glyph.AdvanceX) * scale
 		}
 	}
+
+	if gl.last != nil {
+		gl.last.glyph.source.end = len(text)
+	}
+
+	current_grapheme.range.end = len(text)
+	grapheme_list_push(&grl, current_grapheme)
 
 	if p00 == P00_INIT {
 		p00 = {}

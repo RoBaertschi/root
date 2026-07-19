@@ -48,7 +48,7 @@ NIL_TEXTURE :: Texture_Handle {}
 nil_texture: Texture_Handle
 
 @private
-state: State
+state: ^State
 
 @private
 state_allocator :: proc() -> runtime.Allocator {
@@ -71,6 +71,8 @@ FRAG_SHADER_SOURCE :: #load("fragment.glsl", string)
 
 @(require_results)
 init :: proc() -> (ok: bool) {
+	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
+
 	state.logger   = log.create_console_logger(ident = "RENDER", allocator = state_allocator())
 	context.logger = state.logger
 
