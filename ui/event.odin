@@ -3,6 +3,8 @@ package oui
 import "base:runtime"
 import "core:container/intrusive/list"
 
+import W "../window"
+
 Event_Kind :: enum {
 	None,
 	Pressed,
@@ -146,6 +148,40 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 		for key, mouse_button in c.mouse_button_active {
 			if key == b.key {
 				s.flags += {.Pressed_Left + Signal_Flag(mouse_button)}
+			}
+		}
+	}
+
+	return
+}
+
+events_from_w_events :: proc(c: ^Context, events: ^W.Event_List) -> (el: Event_List) {
+	event_list_init(&el, _context_curr_allocator(c))
+
+	for it := W.event_list_iterator(events^); event in W.event_list_iterate(&it) {
+		switch event.kind {
+		case .Close_Request: // ignore
+		case .Resize:        // ignore
+		case .Key:
+			switch event.key {
+			case .Mouse_Left, .Mouse_Right, .Mouse_Middle:
+				// Some sanity checks, should probably be removed at some point
+
+				#assert(int(Event_Key.Mouse_Left + Event_Key(W.Event_Key.Mouse_Left   - W.Event_Key.Mouse_Left)) == int(Event_Key.Mouse_Left))
+				#assert(int(Event_Key.Mouse_Left + Event_Key(W.Event_Key.Mouse_Right  - W.Event_Key.Mouse_Left)) == int(Event_Key.Mouse_Right))
+				#assert(int(Event_Key.Mouse_Left + Event_Key(W.Event_Key.Mouse_Middle - W.Event_Key.Mouse_Left)) == int(Event_Key.Mouse_Middle))
+
+				#assert(int(Event_Kind.Pressed + Event_Kind(W.Event_Key_State.Pressed))  == int(Event_Kind.Pressed))
+				#assert(int(Event_Kind.Pressed + Event_Kind(W.Event_Key_State.Released)) == int(Event_Kind.Released))
+
+				event_list_push(
+					&el,
+					{
+						key  = Event_Key.Mouse_Left + Event_Key(event.key - .Mouse_Left),
+						kind = Event_Kind.Pressed + Event_Kind(event.key_state),
+						pos  = event.pos,
+					},
+				)
 			}
 		}
 	}

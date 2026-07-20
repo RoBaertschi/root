@@ -25,8 +25,8 @@ layout (binding = 0) uniform sampler2D texture_in;
 
 const vec2 vertices[4] = vec2[](
     vec2(-1, -1),
-    vec2(-1, +1),
     vec2(+1, -1),
+    vec2(-1, +1),
     vec2(+1, +1));
 
 void main() {

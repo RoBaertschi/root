@@ -1,7 +1,10 @@
 package root_base
 
+import "core:math/linalg"
 import "core:container/xar"
 import "core:fmt"
+
+array_cast :: linalg.array_cast
 
 Corner :: enum {
 	Left_Top,

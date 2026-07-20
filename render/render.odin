@@ -29,8 +29,12 @@ State :: struct {
 	arena:       virtual.Arena,
 	frame_arena: virtual.Arena,
 	logger:      runtime.Logger,
+
 	textures:    B.Handle_Map(Texture, Texture_Handle),
 
+	window_size: [2]int,
+
+	clips:             xar.Array(B.Rect(int), 4),
 	rects:             xar.Array(Rect, 6),
 	textures_per_rect: Texture_Handle,  // one per rect
 	batches:           Batch_List,
@@ -78,6 +82,7 @@ init :: proc() -> (ok: bool) {
 
 	B.hm_init(&state.textures, _texture_from_data({ 1, 1 }, { 255, 255, 255, 255 }), state_allocator())
 	xar.init(&state.rects, state_allocator())
+	xar.init(&state.clips, state_allocator())
 
 	state.shader_program, ok = gl.load_shaders_source(VERT_SHADER_SOURCE, FRAG_SHADER_SOURCE)
 	if !ok {
@@ -128,15 +133,27 @@ init :: proc() -> (ok: bool) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
 	gl.Enable(gl.BLEND)
+	gl.Enable(gl.SCISSOR_TEST)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 
 	ok = true
 	return
 }
 
-frame :: proc(window_size: [2]int) {
+begin_frame :: proc(window_size: [2]int) {
+	state.window_size = window_size
+
+	// Reset frame data
+	xar.clear(&state.rects)
+	xar.clear(&state.clips)
+	_, _ = xar.push_back(&state.clips, B.Rect(int){ pos = {}, size = window_size })
+	batch_list_clear(&state.batches)
+	virtual.arena_free_all(&state.frame_arena)
+}
+
+end_frame :: proc() {
 	// Apply window size
-	gl.Viewport(0, 0, **linalg.array_cast(window_size, i32))
+	gl.Viewport(0, 0, **linalg.array_cast(state.window_size, i32))
 
 	// Resize buffer
 	for state.rects.len > state.buffer_size {
@@ -171,12 +188,15 @@ frame :: proc(window_size: [2]int) {
 
 	// Setup shared batch state
 	gl.UseProgram(state.shader_program)
-	gl.Uniform2f(1, **linalg.array_cast(window_size, f32))
+	gl.Uniform2f(1, **linalg.array_cast(state.window_size, f32))
 
 	// Draw batches
 	for batch_node := state.batches.first; batch_node != nil; batch_node = batch_node.next {
 		batch := batch_node.batch
 		count := batch.end - batch.start
+
+		clip := top_clip()
+		gl.Scissor(**linalg.array_cast(clip.pos, i32), **linalg.array_cast(clip.size, i32))
 
 		texture := B.hm_get(&state.textures, batch.data.texture) or_else B.hm_get(&state.textures, NIL_TEXTURE)
 
@@ -186,11 +206,6 @@ frame :: proc(window_size: [2]int) {
 	}
 
 	gl.BindVertexArray(0)
-
-	// Reset frame data
-	xar.clear(&state.rects)
-	batch_list_clear(&state.batches)
-	virtual.arena_free_all(&state.frame_arena)
 }
 
 Texture_Handle :: struct {
@@ -263,8 +278,23 @@ rect :: proc(r: B.Rect(f32) = {}, color: Color = {}, texture := NIL_TEXTURE, tex
 		rect,
 		{
 			texture = texture,
+			clip    = top_clip(),
 		},
 	)
+}
+
+top_clip :: proc() -> B.Rect(int) {
+	return xar.get(&state.clips, xar.len(state.clips)-1)
+}
+
+push_clip :: proc(r: B.Rect(int)) {
+	xar.push_back(&state.clips, B.rect_intersection(r, top_clip()))
+}
+
+pop_clip :: proc() -> B.Rect(int) {
+	assert(xar.len(state.clips) > 1)
+
+	return xar.pop(&state.clips)
 }
 
 // texture_fill_part_alpha_only :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {

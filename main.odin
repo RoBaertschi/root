@@ -1,5 +1,6 @@
 package root
 
+import "core:time"
 import "core:fmt"
 import "core:math/linalg"
 import "core:os"
@@ -9,6 +10,7 @@ import F "font"
 import W "window"
 import R "render"
 import B "base"
+import UI "ui"
 
 main :: proc() {
 	temp := B.TEMP_ALLOCATOR_GUARD()
@@ -49,8 +51,16 @@ main :: proc() {
 
 	// R.texture_from_size({ 1024, 1024 })
 
+	c: UI.Context
+	UI.context_init(&c)
+	defer UI.context_fini(&c)
+
+	last_time: time.Tick
+
 	run := true
 	for run {
+		current_time := f32(time.tick_lap_time(&last_time)) / f32(time.Second)
+
 		events := W.events()
 
 		for it := W.event_list_iterator(events^);
@@ -62,6 +72,46 @@ main :: proc() {
 			}
 		}
 
+		R.begin_frame(W.size())
+
+		UI.begin({
+			root_key   = "",
+			root_size  = B.array_cast(W.size(), f32),
+			delta_time = current_time,
+		}, &c)
+		{
+			UI.corner_radius_guard(&c, 0.2)
+			UI.semantic_width_set_next(&c, UI.pixels(200, 1))
+			UI.semantic_height_set_next(&c, UI.pixels(400, 1))
+			UI.box_make({ .Draw_Background }, "", &c)
+
+			UI.semantic_width_set_next(&c, UI.children_sum(1))
+			UI.semantic_height_set_next(&c, UI.children_sum(1))
+			UI.background_color_set_next(&c, { 222, 22, 222, 255 })
+			b := UI.box_make({ .Draw_Background, .Draw_Clip, .Overflow_X }, "clipped", &c)
+
+			{
+				UI.parent_guard(b, &c)
+				UI.semantic_width_set_next(&c, UI.pixels(10, 1))
+				UI.semantic_height_set_next(&c, UI.pixels(0, 1))
+				UI.box_make({}, "", &c)
+
+				UI.semantic_width_set_next(&c, UI.text_content(1))
+				UI.semantic_height_set_next(&c, UI.text_content(1))
+				UI.background_color_set_next(&c, { 222, 22, 222, 255 })
+				button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button", &c)
+				s := UI.signal_from_box(button, &c)
+
+				if .Clicked_Left in s.flags {
+					fmt.println("button", s.flags)
+				}
+
+				UI.semantic_width_set_next(&c, UI.pixels(10, 1))
+				UI.semantic_height_set_next(&c, UI.pixels(0, 1))
+				UI.box_make({}, "", &c)
+			}
+		}
+		UI.end(&c)
 
 		for x in 0..<20 {
 			for y in 0..<20 {
@@ -130,6 +180,8 @@ main :: proc() {
 				glyph_node = glyph_node.next
 			}
 
+			UI.render(&c)
+
 
 			// {
 			// 	r := R.rect(
@@ -147,7 +199,7 @@ main :: proc() {
 			// }
 		}
 
-		R.frame(W.size())
+		R.end_frame()
 		W.frame()
 		F.frame()
 	}

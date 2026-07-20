@@ -15,6 +15,7 @@ Batch_Node :: struct {
 
 Batch_Data :: struct {
 	texture: Texture_Handle,
+	clip:    B.Rect(int),
 }
 
 Batch_List :: struct {

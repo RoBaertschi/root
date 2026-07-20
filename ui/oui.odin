@@ -1,33 +1,24 @@
 #+vet explicit-allocators
 package oui
 
-import "base:intrinsics"
 import "core:math"
 // TODO(robin): figure the allocation error story out
 
-import "core:fmt"
 import "core:strings"
 import "base:runtime"
 import "core:mem/virtual"
 import "core:container/xar"
 
+import W "../window"
+import F "../font"
+import B "../base"
+
 // Based on https://www.dgtlgrove.com/p/ui-part-3-the-widget-building-language
 
 Arena :: virtual.Arena
 
-Rect :: struct {
-	pos:  [2]f32,
-	size: [2]f32,
-}
-
+Rect :: B.Rect(f32)
 Color :: [4]u8
-
-Impl_Meassure_Text :: #type proc(data: rawptr, s: string, a: Axis) -> f32
-
-Impl :: struct {
-	user_data:     rawptr,
-	meassure_text: Impl_Meassure_Text,
-}
 
 NULL_KEY :: ""
 
@@ -38,6 +29,7 @@ Mouse_Button :: enum {
 }
 
 Context :: struct {
+	// TODO(robin): don't move the arenas, that's invalid
 	curr_arena: Arena,
 	prev_arena: Arena,
 	perm_arena: Arena,
@@ -64,7 +56,6 @@ Context :: struct {
 
 	//+external stuff
 
-	impl:       Impl,
 	events:     Event_List,
 	mouse_pos:  [2]f32,
 	delta_time: f32,
@@ -80,12 +71,8 @@ _context_perm_allocator :: proc(c: ^Context) -> runtime.Allocator {
 	return virtual.arena_allocator(&c.perm_arena)
 }
 
-context_init :: proc(c: ^Context, impl: Impl) {
-	assert(impl.meassure_text != nil)
-
-	c^ = {
-		impl = impl,
-	}
+context_init :: proc(c: ^Context) {
+	c^ = {}
 
 	_ = virtual.arena_init_growing(&c.curr_arena)
 	_ = virtual.arena_init_growing(&c.prev_arena)
@@ -176,8 +163,6 @@ semantic_size_top :: proc(c: ^Context, a: Axis) -> Size {
 Begin_Description :: struct {
 	root_size:  [2]f32,
 	root_key:   string,
-	events:     Event_List,
-	mouse_pos:  [2]f32,
 	delta_time: f32,
 }
 
@@ -201,8 +186,8 @@ begin :: proc(desc: Begin_Description, c: ^Context) {
 
 	init_stacks(c)
 
-	c.events     = desc.events
-	c.mouse_pos  = desc.mouse_pos
+	c.events     = events_from_w_events(c, W.events())
+	c.mouse_pos  = W.mouse()
 	c.delta_time = desc.delta_time
 
 	semantic_width_set_next(c, pixels(desc.root_size.x, 1))
@@ -258,7 +243,7 @@ end :: proc(c: ^Context) {
 			b.computed_size[a] = size.value
 		case .Text_Content:
 			if b.att_text != nil {
-				b.computed_size[a] = c.impl.meassure_text(c.impl.user_data, b.att_text.content, a)
+				b.computed_size = transmute([Axis]f32)b.att_text.run.metrics.size
 			}
 		}
 
@@ -486,8 +471,9 @@ Box_Flag :: enum {
 Box_Flags :: bit_set[Box_Flag]
 
 Box_Attachment_Text :: struct {
-	content: string,
+	run:     ^F.Run,
 	color:   Color,
+	content: string,
 	// TODO(robin): text size
 }
 
@@ -627,7 +613,8 @@ box_attach_text :: proc(b: ^Box, text: string, c: ^Context) {
 		b.att_text = new(Box_Attachment_Text, _context_curr_allocator(c))
 	}
 
-	b.att_text.content = cloned_text
+	b.att_text.content = text
+	b.att_text.run     = F.get_run(0, 24, text)
 	b.att_text.color   = text_color_top(c)
 }
 
@@ -698,64 +685,64 @@ box_make :: proc(flags: Box_Flags, key: string, c: ^Context) -> (b: ^Box) {
 	return b
 }
 
-main :: proc() {
-	context_init(
-		&global_context,
-		{
-			meassure_text = proc(_: rawptr, s: string, _: Axis) -> f32 {
-				return 3
-			}
-		},
-	)
-
-	desc := Begin_Description{ root_size = { 800, 600 }, root_key = "root", events = {} }
-	begin(desc, &global_context)
-
-	{
-		semantic_width_guard(&global_context, pixels(20, 1))
-		semantic_height_guard(&global_context, pixels(40, 1))
-
-		semantic_width_set_next(&global_context, children_sum(1))
-		semantic_height_set_next(&global_context, children_sum(1))
-		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-
-		box_make({}, "World", &global_context)
-		box_make({}, "World2", &global_context)
-		box_make({}, "World3", &global_context)
-	}
-
-	end(&global_context)
-
-	fmt.printfln("%#v", global_context)
-
-	begin(desc, &global_context)
-
-	{
-		semantic_width_guard(&global_context, pixels(20, 1))
-		semantic_height_guard(&global_context, pixels(40, 1))
-
-		semantic_width_set_next(&global_context, children_sum(1))
-		semantic_height_set_next(&global_context, children_sum(1))
-		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-		box_make({}, "World", &global_context)
-		box_make({}, "World2", &global_context)
-		box_make({}, "World3", &global_context)
-	}
-
-	end(&global_context)
-
-	begin(desc, &global_context)
-
-	{
-		semantic_width_guard(&global_context, pixels(20, 1))
-		semantic_height_guard(&global_context, pixels(40, 1))
-
-		semantic_width_set_next(&global_context, children_sum(1))
-		semantic_height_set_next(&global_context, children_sum(1))
-		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-	}
-
-	end(&global_context)
-
-	fmt.printfln("%#v", global_context)
-}
+// main :: proc() {
+// 	context_init(
+// 		&global_context,
+// 		{
+// 			meassure_text = proc(_: rawptr, s: string, _: Axis) -> f32 {
+// 				return 3
+// 			}
+// 		},
+// 	)
+//
+// 	desc := Begin_Description{ root_size = { 800, 600 }, root_key = "root", events = {} }
+// 	begin(desc, &global_context)
+//
+// 	{
+// 		semantic_width_guard(&global_context, pixels(20, 1))
+// 		semantic_height_guard(&global_context, pixels(40, 1))
+//
+// 		semantic_width_set_next(&global_context, children_sum(1))
+// 		semantic_height_set_next(&global_context, children_sum(1))
+// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
+//
+// 		box_make({}, "World", &global_context)
+// 		box_make({}, "World2", &global_context)
+// 		box_make({}, "World3", &global_context)
+// 	}
+//
+// 	end(&global_context)
+//
+// 	fmt.printfln("%#v", global_context)
+//
+// 	begin(desc, &global_context)
+//
+// 	{
+// 		semantic_width_guard(&global_context, pixels(20, 1))
+// 		semantic_height_guard(&global_context, pixels(40, 1))
+//
+// 		semantic_width_set_next(&global_context, children_sum(1))
+// 		semantic_height_set_next(&global_context, children_sum(1))
+// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
+// 		box_make({}, "World", &global_context)
+// 		box_make({}, "World2", &global_context)
+// 		box_make({}, "World3", &global_context)
+// 	}
+//
+// 	end(&global_context)
+//
+// 	begin(desc, &global_context)
+//
+// 	{
+// 		semantic_width_guard(&global_context, pixels(20, 1))
+// 		semantic_height_guard(&global_context, pixels(40, 1))
+//
+// 		semantic_width_set_next(&global_context, children_sum(1))
+// 		semantic_height_set_next(&global_context, children_sum(1))
+// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
+// 	}
+//
+// 	end(&global_context)
+//
+// 	fmt.printfln("%#v", global_context)
+// }

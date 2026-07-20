@@ -3,7 +3,7 @@ package oui_raylib_example
 import "core:fmt"
 import "vendor:raylib"
 
-import "../.."
+import oui "../.."
 import oui_raylib ".."
 
 main :: proc() {

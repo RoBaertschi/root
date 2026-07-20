@@ -1,6 +1,7 @@
 #+private
 package root_window
 
+import "core:fmt"
 import "core:math/linalg"
 import "core:math/bits"
 import "core:strings"
@@ -20,6 +21,7 @@ State :: struct {
 	arena:       virtual.Arena,
 	flags:       Window_Flags,
 	events:      Event_List,
+	dispatched:  bool,
 
 	display:     ^wl.display,
 	registry:    ^wl.registry,
@@ -94,6 +96,7 @@ wl_pointer_listener := wl.pointer_listener{
 		}
 
 		context = state.ctx
+		fmt.println("button")
 
 		event_list_push(
 			&state.events,
@@ -105,11 +108,11 @@ wl_pointer_listener := wl.pointer_listener{
 			},
 		)
 
-		if button == .Left {
-			xdg.toplevel_move(state.xdg_toplevel, state.seat, serial)
-		} else if button == .Right {
-			xdg.toplevel_resize(state.xdg_toplevel, state.seat, serial, .bottom_right)
-		}
+		// if button == .Left {
+		// 	xdg.toplevel_move(state.xdg_toplevel, state.seat, serial)
+		// } else if button == .Right {
+		// 	xdg.toplevel_resize(state.xdg_toplevel, state.seat, serial, .bottom_right)
+		// }
 	},
 	axis = auto_cast proc "c"(data: rawptr, pointer: ^wl.pointer, time_: u32, axis_: u32, value_: wl.fixed_t) {
 		axis := wl.pointer_axis(axis_)
@@ -401,13 +404,16 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 }
 
 _frame :: proc() {
+	state.dispatched = false
 	egl.SwapBuffers(state.egl_display, state.egl_surface)
 }
 
 _events :: proc() -> ^Event_List {
-	if wl.display_dispatch(state.display) == -1 {
+	if !state.dispatched && wl.display_dispatch(state.display) == -1 {
 		log.errorf("could not dispatch wayland display: %v", wl.display_get_error(state.display))
 	}
+
+	state.dispatched = true
 
 	return &state.events
 }
