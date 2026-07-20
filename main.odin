@@ -86,6 +86,11 @@ main :: proc() {
 			}
 		}
 
+		temp := B.TEMP_ALLOCATOR_GUARD()
+		mouse_pos     := W.mouse()
+		mouse_pos_str := fmt.aprintf("x: %v, y: %v", mouse_pos.x, mouse_pos.y)
+		draw_text({}, mouse_pos_str)
+
 		gl := run.glyphs
 		for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
 			glyph_node := grapheme.start

@@ -1,3 +1,4 @@
+#+private
 package root_window
 
 import "core:math/linalg"
@@ -23,12 +24,15 @@ State :: struct {
 	display:     ^wl.display,
 	registry:    ^wl.registry,
 	compositor:  ^wl.compositor,
+	shm:         ^wl.shm,
 	xdg_wm_base: ^xdg.wm_base,
 	seat:        ^wl.seat,
 
 	capabilities:           Seat_Capabilities,
 	pointer:                ^wl.pointer,
 	pointer_pos:            [2]f32,
+	cursor_image:           ^wl.cursor_image,
+	cursor_surface:         ^wl.surface,
 	surface:                ^wl.surface,
 	region:                 ^wl.region,
 	xdg_surface:            ^xdg.surface,
@@ -41,7 +45,6 @@ State :: struct {
 	egl_window:  ^wl.egl_window,
 }
 
-@private
 _state_allocator :: proc() -> runtime.Allocator {
 	return virtual.arena_allocator(&state.arena)
 }
@@ -56,9 +59,15 @@ Seat_Capability :: enum i32 {
 
 Seat_Capabilities :: bit_set[Seat_Capability; i32]
 
-@private
+Wl_Button :: enum u32 {
+	Left   = 0x110,
+	Right  = 0x111,
+	Middle = 0x112,
+}
+
 wl_pointer_listener := wl.pointer_listener{
 	enter = proc "c"(data: rawptr, pointer: ^wl.pointer, serial_: u32, surface: ^wl.surface, surface_x: wl.fixed_t, surface_y: wl.fixed_t) {
+		wl.pointer_set_cursor(pointer, serial_, state.cursor_surface, i32(state.cursor_image.hotspot_x), i32(state.cursor_image.hotspot_y))
 		if surface == state.surface {
 			state.pointer_pos = { wl.fixed_to_f32(surface_x), wl.fixed_to_f32(surface_y) }
 		}
@@ -67,9 +76,56 @@ wl_pointer_listener := wl.pointer_listener{
 	motion = proc "c"(data: rawptr, pointer: ^wl.pointer, time: u32, surface_x: wl.fixed_t, surface_y: wl.fixed_t) {
 		state.pointer_pos = { wl.fixed_to_f32(surface_x), wl.fixed_to_f32(surface_y) }
 	},
+	button = auto_cast proc "c"(data: rawptr, pointer: ^wl.pointer, serial: u32, time: u32, button_: u32, button_state_: u32) {
+		button_state := wl.pointer_button_state(button_state_)
+		button       := Wl_Button(button_)
+
+		@static
+		button_lookup := [Wl_Button]Event_Key{
+			.Left   = .Mouse_Left,
+			.Right  = .Mouse_Right,
+			.Middle = .Mouse_Middle,
+		}
+
+		@static
+		button_state_lookup := [wl.pointer_button_state]Event_Key_State{
+			.released = .Released,
+			.pressed  = .Pressed,
+		}
+
+		context = state.ctx
+
+		event_list_push(
+			&state.events,
+			Event {
+				kind      = .Key,
+				pos       = state.pointer_pos,
+				key       = button_lookup[button],
+				key_state = button_state_lookup[button_state],
+			},
+		)
+
+		if button == .Left {
+			xdg.toplevel_move(state.xdg_toplevel, state.seat, serial)
+		} else if button == .Right {
+			xdg.toplevel_resize(state.xdg_toplevel, state.seat, serial, .bottom_right)
+		}
+	},
+	axis = auto_cast proc "c"(data: rawptr, pointer: ^wl.pointer, time_: u32, axis_: u32, value_: wl.fixed_t) {
+		axis := wl.pointer_axis(axis_)
+	},
+	frame = proc "c"(data: rawptr, pointer: ^wl.pointer) {
+		// TODO(robin): dispatch collected data
+	},
+	axis_source = auto_cast proc "c"(data: rawptr, pointer: ^wl.pointer, axis_source_: u32) {
+		axis_source := wl.pointer_axis_source(axis_source_)
+	},
+	axis_stop = proc "c"(data: rawptr, pointer: ^wl.pointer, time_: u32, axis_: wl.pointer_axis) {},
+	axis_discrete = auto_cast proc "c"(data: rawptr, pointer: ^wl.pointer, axis_: u32, discrete_: i32) {
+		axis := wl.pointer_axis(axis_)
+	},
 }
 
-@private
 wl_seat_listener := wl.seat_listener{
 	capabilities = auto_cast proc "c"(data: rawptr, seat: ^wl.seat, capabilities: bit_set[Seat_Capability; i32]) {
 		state.capabilities = capabilities
@@ -85,7 +141,6 @@ wl_seat_listener := wl.seat_listener{
 	name = proc "c"(data: rawptr, seat: ^wl.seat, name_: cstring) {},
 }
 
-@private
 xdg_toplevel_listener := xdg.toplevel_listener{
 	configure = proc "c"(data: rawptr, toplevel: ^xdg.toplevel, width_: i32, height_: i32, states_: wl.array) {
 		if width_ == 0 && height_ == 0 {
@@ -141,7 +196,6 @@ xdg_toplevel_listener := xdg.toplevel_listener{
 	},
 }
 
-@private
 xdg_surface_listener := xdg.surface_listener{
 	configure = proc "c"(data: rawptr, surface: ^xdg.surface, serial: u32) {
 		xdg.surface_ack_configure(surface, serial)
@@ -149,14 +203,12 @@ xdg_surface_listener := xdg.surface_listener{
 	},
 }
 
-@private
 xdg_wm_base_listener := xdg.wm_base_listener{
 	ping = proc "c"(data: rawptr, wm_base: ^xdg.wm_base, serial: u32) {
 		xdg.wm_base_pong(wm_base, serial)
 	},
 }
 
-@private
 _init :: proc(desc: Init_Description) -> (ok: bool) {
 	assert(desc.size.x <= bits.I32_MAX)
 	assert(desc.size.y <= bits.I32_MAX)
@@ -191,6 +243,8 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 			case wl.seat_interface.name:
 				state.seat = cast(^wl.seat)wl.registry_bind(registry, name, &wl.seat_interface, 7)
 				wl.seat_add_listener(state.seat, &wl_seat_listener, nil)
+			case wl.shm_interface.name:
+				state.shm = cast(^wl.shm)wl.registry_bind(registry, name, &wl.shm_interface, 1)
 			case xdg.wm_base_interface.name:
 				state.xdg_wm_base = cast(^xdg.wm_base)wl.registry_bind(registry, name, &xdg.wm_base_interface, min(version, 5))
 				xdg.wm_base_add_listener(state.xdg_wm_base, &xdg_wm_base_listener, nil)
@@ -253,6 +307,14 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	defer if !ok {
 		wl.region_destroy(state.region)
 	}
+
+	cursor_theme         := wl.cursor_theme_load(nil, 24, state.shm)
+	cursor               := wl.cursor_theme_get_cursor(cursor_theme, "left_ptr")
+	state.cursor_image    = cursor.images[0]
+	cursor_buffer        := wl.cursor_image_get_buffer(state.cursor_image)
+	state.cursor_surface  = wl.compositor_create_surface(state.compositor)
+	wl.surface_attach(state.cursor_surface, cursor_buffer, 0, 0)
+	wl.surface_commit(state.cursor_surface)
 
 	state.egl_display = egl.GetDisplay(egl.NativeDisplayType(state.display))
 	if state.egl_display == nil {
@@ -338,12 +400,10 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	return
 }
 
-@private
 _frame :: proc() {
 	egl.SwapBuffers(state.egl_display, state.egl_surface)
 }
 
-@private
 _events :: proc() -> ^Event_List {
 	if wl.display_dispatch(state.display) == -1 {
 		log.errorf("could not dispatch wayland display: %v", wl.display_get_error(state.display))
@@ -352,12 +412,14 @@ _events :: proc() -> ^Event_List {
 	return &state.events
 }
 
-@private
+_mouse :: proc() -> [2]f32 {
+	return state.pointer_pos
+}
+
 _flags :: proc() -> Window_Flags {
 	return state.flags
 }
 
-@private
 _size :: proc() -> [2]int {
 	return linalg.array_cast(state.window_size, int)
 }

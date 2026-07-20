@@ -6,11 +6,27 @@ import "core:container/intrusive/list"
 Event_Kind :: enum {
 	Close_Request,
 	Resize,
+	Key,
+}
+
+Event_Key_State :: enum {
+	Pressed,
+	Released,
+}
+
+Event_Key :: enum {
+	Mouse_Left,
+	Mouse_Right,
+	Mouse_Middle,
 }
 
 Event :: struct {
-	kind: Event_Kind,
-	size: [2]int,
+	kind:      Event_Kind,
+	size:      [2]int,
+
+	pos:       [2]f32,
+	key:       Event_Key,
+	key_state: Event_Key_State,
 }
 
 Event_Node :: struct {
@@ -87,6 +103,10 @@ frame :: proc() {
 
 events :: proc() -> ^Event_List {
 	return _events()
+}
+
+mouse :: proc() -> [2]f32 {
+	return _mouse()
 }
 
 flags :: proc() -> Window_Flags {
