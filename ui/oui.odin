@@ -243,7 +243,7 @@ end :: proc(c: ^Context) {
 			b.computed_size[a] = size.value
 		case .Text_Content:
 			if b.att_text != nil {
-				b.computed_size = transmute([Axis]f32)b.att_text.run.metrics.size
+				b.computed_size[a] = b.att_text.run.metrics.size[a]
 			}
 		}
 

@@ -113,11 +113,11 @@ main :: proc() {
 		}
 		UI.end(&c)
 
-		for x in 0..<20 {
-			for y in 0..<20 {
-				R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
-			}
-		}
+		// for x in 0..<20 {
+		// 	for y in 0..<20 {
+		// 		R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+		// 	}
+		// }
 
 		text := "Yolo!!!!????>= ==="
 
@@ -166,21 +166,8 @@ main :: proc() {
 					draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
 				}
 
-				{
-					r := R.rect(
-						r     = { pos = run.metrics.pos + { 0, 800 } - { 2, 2 }, size = run.metrics.size + { 4, 4 } },
-						color = { 0, 0, 1, 1 },
-					)
-					r.color[._00] = { 1, 0, 0, 1 }
-					r.color[._11] = { 1, 0, 0, 1 }
-					r.corner_radius = 4
-					r.border_thickness = 2
-				}
-
 				glyph_node = glyph_node.next
 			}
-
-			UI.render(&c)
 
 
 			// {
@@ -198,6 +185,19 @@ main :: proc() {
 			// 	r.border_thickness = 4
 			// }
 		}
+
+		{
+			r := R.rect(
+				r     = { pos = run.metrics.pos + { 0, 800 } - { 2, 2 }, size = run.metrics.size + { 4, 4 } },
+				color = { 0, 0, 1, 1 },
+			)
+			r.color[._00] = { 1, 0, 0, 1 }
+			r.color[._11] = { 1, 0, 0, 1 }
+			r.corner_radius = 4
+			r.border_thickness = 2
+		}
+
+		UI.render(&c)
 
 		R.end_frame()
 		W.frame()
