@@ -4,7 +4,6 @@ package root_window
 import "core:time"
 import "core:c"
 import "core:sys/posix"
-import "core:fmt"
 import "core:math/linalg"
 import "core:math/bits"
 import "core:strings"
@@ -20,6 +19,16 @@ import wl "../wayland"
 import xkb "xkbcommon"
 
 import gl "vendor:OpenGL"
+
+Key :: struct {
+	keysym: xkb.keysym_t,
+	key:    Event_Key,
+}
+
+Key_Node :: struct {
+	next: ^Key_Node,
+	key:  Key,
+}
 
 State :: struct {
 	ctx:                    runtime.Context,
@@ -53,6 +62,8 @@ State :: struct {
 	xkb_state:              ^xkb.state,
 	xkb_compose_table:      ^xkb.compose_table,
 	xkb_compose_state:      ^xkb.compose_state,
+	pressed_keys:           ^Key_Node,
+	free_keys:              ^Key_Node,
 
 	surface:                ^wl.surface,
 	region:                 ^wl.region,
@@ -86,21 +97,59 @@ Wl_Button :: enum u32 {
 	Middle = 0x112,
 }
 
+keysym_push :: proc(key: Key) {
+	node: ^Key_Node
+	if state.free_keys != nil {
+		node            = state.free_keys
+		state.free_keys = node.next
+		node^           = {}
+	} else {
+		node, _ = virtual.new(&state.arena, Key_Node)
+	}
+
+	node.key           = key
+	node.next          = state.pressed_keys
+	state.pressed_keys = node
+}
+
+keysym_is_pressed :: proc(keysym: xkb.keysym_t) -> bool {
+	for node := state.pressed_keys; node != nil; node = node.next {
+		if node.key.keysym == keysym {
+			return true
+		}
+	}
+
+	return false
+}
+
+keysym_remove :: proc(keysym: xkb.keysym_t) {
+	next_ptr := &state.pressed_keys
+
+	for node := state.pressed_keys; node != nil; node = node.next {
+		if node.key.keysym == keysym {
+			next_ptr^       = node.next
+			state.free_keys = node
+			return
+		}
+
+		next_ptr = &node.next
+	}
+	// not found
+}
+
 event_key_from_xkb_keysym :: proc(keysym: xkb.keysym_t) -> Event_Key {
 	#partial switch xkb.keysyms(keysym) {
 	case .a..=.z:       return .A + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.a))
-	case .A..=.Z:       return .A + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.A))
 	case ._0..=._9:     return .Num_0 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms._0))
 	case .F1..=.F12:    return .F1 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.F1))
-	case .KP_0..=.KP_9: return .Keypad_0 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.KP_0))
 
-	case .Escape:             return .Escape
-	case .Return:             return .Enter
-	case .Tab, .ISO_Left_Tab: return .Tab
-	case .BackSpace:          return .Backspace
-	case .Delete:             return .Delete
-	case .Insert:             return .Insert
-	case .space:              return .Space
+	case .Escape:       return .Escape
+	case .Return:       return .Enter
+	case .Tab:          return .Tab
+	case .BackSpace:    return .Backspace
+	case .Delete:       return .Delete
+	case .Insert:       return .Insert
+	case .space:        return .Space
 
 	case .Left:         return .Left
 	case .Right:        return .Right
@@ -119,28 +168,17 @@ event_key_from_xkb_keysym :: proc(keysym: xkb.keysym_t) -> Event_Key {
 	case .Super_L:      return .Super_Left
 	case .Super_R:      return .Super_Right
 
-	case .exclam:       return .Num_1
-	case .at:           return .Num_2
-	case .numbersign:   return .Num_3
-	case .dollar:       return .Num_4
-	case .percent:      return .Num_5
-	case .asciicircum:  return .Num_6
-	case .ampersand:    return .Num_7
-	case .asterisk:     return .Num_8
-	case .parenleft:    return .Num_9
-	case .parenright:   return .Num_0
-
-	case .minus, .underscore:        return .Minus
-	case .equal, .plus:              return .Equal
-	case .bracketleft, .braceleft:   return .Left_Bracket
-	case .bracketright, .braceright: return .Right_Bracket
-	case .backslash, .bar:           return .Backslash
-	case .semicolon, .colon:         return .Semicolon
-	case .apostrophe, .quotedbl:     return .Apostrophe
-	case .grave, .asciitilde:        return .Grave
-	case .comma, .less:              return .Comma
-	case .period, .greater:          return .Period
-	case .slash, .question:          return .Slash
+	case .minus:        return .Minus
+	case .equal:        return .Equal
+	case .bracketleft:  return .Left_Bracket
+	case .bracketright: return .Right_Bracket
+	case .backslash:    return .Backslash
+	case .semicolon:    return .Semicolon
+	case .apostrophe:   return .Apostrophe
+	case .grave:        return .Grave
+	case .comma:        return .Comma
+	case .period:       return .Period
+	case .slash:        return .Slash
 
 	case .Print:        return .Print_Screen
 	case .Pause:        return .Pause
@@ -157,7 +195,6 @@ event_key_from_xkb_keysym :: proc(keysym: xkb.keysym_t) -> Event_Key {
 	case .KP_Up:        return .Keypad_8
 	case .KP_Prior:     return .Keypad_9
 	case .KP_Delete:    return .Keypad_Decimal
-	case .KP_Decimal:   return .Keypad_Decimal
 	case .KP_Divide:    return .Keypad_Divide
 	case .KP_Multiply:  return .Keypad_Multiply
 	case .KP_Subtract:  return .Keypad_Subtract
@@ -246,13 +283,27 @@ wl_pointer_listener := wl.pointer_listener{
 	},
 }
 
-push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Event_Key_State) {
+event_list_push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Event_Key_State) {
+	event_key := event_key_from_xkb_keysym(keysym)
+
+	switch key_state {
+	case .Pressed:
+		if !keysym_is_pressed(keysym) {
+			keysym_push({
+				keysym = keysym,
+				key    = event_key,
+			})
+		}
+	case .Released:
+		keysym_remove(keysym)
+	}
+
 	event_list_push(
 		&state.events,
 		Event {
 			kind      = .Key,
 			modifiers = mods,
-			key       = event_key_from_xkb_keysym(keysym),
+			key       = event_key,
 			key_state = key_state,
 		},
 	)
@@ -284,7 +335,7 @@ keycode_pressed :: proc(keycode: xkb.keycode_t) {
 	mods := event_modifiers_from_xkb_state(state.xkb_state)
 
 	if is_shortcut(keysym) {
-		push_keysym(keysym, mods, .Pressed)
+		event_list_push_keysym(keysym, mods, .Pressed)
 	} else {
 		temp := B.TEMP_ALLOCATOR_GUARD()
 		result := ""
@@ -341,7 +392,17 @@ keycode_pressed :: proc(keycode: xkb.keycode_t) {
 is_shortcut :: proc(keysym: xkb.keysym_t) -> bool {
 	#partial switch xkb.keysyms(keysym) {
 	case .Control_L, .Control_R,
-		 .Super_L,   .Super_R:
+		 .Super_L,   .Super_R,
+		 .Escape,    .Return,
+		 .Tab,       .ISO_Left_Tab,
+		 .BackSpace, .Delete,
+		 .Insert,    .Left,
+		 .Right,     .Up,
+		 .Down,      .Home,
+		 .End,       .Prior,
+		 .Next,      .Print,
+		 .Pause,     .Menu,
+		 .F1..=.F12:
 		return true
 	case:
 		mods := event_modifiers_from_xkb_state(state.xkb_state)
@@ -351,7 +412,37 @@ is_shortcut :: proc(keysym: xkb.keysym_t) -> bool {
 
 wl_keyboard_listener := wl.keyboard_listener{
 	enter = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface, keys_: wl.array) {},
-	leave = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface)                  {},
+
+	leave = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface) {
+		context = state.ctx
+
+		node := state.pressed_keys
+		for node != nil {
+			event_list_push(
+				&state.events,
+				Event {
+					kind      = .Key,
+					key       = node.key.key,
+					key_state = .Released,
+					modifiers = event_modifiers_from_xkb_state(state.xkb_state),
+				},
+			)
+
+			next := node.next
+			node.next       = state.free_keys
+			state.free_keys = node
+			node = next
+		}
+		state.pressed_keys = nil
+
+		xkb.state_update_mask(state.xkb_state, 0, 0, 0, 0, 0, 0)
+		state.keyboard_last_keycode  = {}
+		state.keyboard_next_deadline = {}
+
+		if state.xkb_compose_state != nil {
+			xkb.compose_state_reset(state.xkb_compose_state)
+		}
+	},
 
 	keymap = proc "c"(data: rawptr, keyboard: ^wl.keyboard, format: wl.keyboard_keymap_format, fd: i32, size: u32) {
 		context = state.ctx
@@ -395,8 +486,8 @@ wl_keyboard_listener := wl.keyboard_listener{
 
 				mods   := event_modifiers_from_xkb_state(state.xkb_state)
 				keysym := keysym_from_keycode_level_0_only(keycode)
-				if is_shortcut(keysym) {
-					push_keysym(keysym, mods, .Released)
+				if keysym_is_pressed(keysym) {
+					event_list_push_keysym(keysym, mods, .Released)
 				}
 
 				return
@@ -522,8 +613,8 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
 
 	context.logger = log.create_console_logger(ident = "WINDOW")
-	state.ctx   = context
-	state.flags = { .Maximize_Supported, .Minimize_Supported, .Decoration_Context_Menu_Supported }
+	state.ctx     = context
+	state.flags   = { .Maximize_Supported, .Minimize_Supported, .Decoration_Context_Menu_Supported }
 	state.xkb_ctx = xkb.context_new({})
 
 	state.display = wl.display_connect(nil)
