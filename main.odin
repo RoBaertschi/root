@@ -89,26 +89,31 @@ main :: proc() {
 			UI.semantic_height_set_next(&c, UI.children_sum(1))
 			UI.background_color_set_next(&c, { 222, 22, 222, 255 })
 			b := UI.box_make({ .Draw_Background, .Draw_Clip, .Overflow_X }, "clipped", &c)
-
 			{
 				UI.parent_guard(b, &c)
-				UI.semantic_width_set_next(&c, UI.pixels(10, 1))
-				UI.semantic_height_set_next(&c, UI.pixels(0, 1))
-				UI.box_make({}, "", &c)
+				UI.child_layout_axis_set_next(&c, .Y)
+				par := UI.box_make({}, "", &c)
 
-				UI.semantic_width_set_next(&c, UI.text_content(1))
-				UI.semantic_height_set_next(&c, UI.text_content(1))
-				UI.background_color_set_next(&c, { 222, 22, 222, 255 })
-				button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button", &c)
-				s := UI.signal_from_box(button, &c)
+				{
+					UI.parent_guard(par, &c)
+					UI.semantic_width_set_next(&c, UI.pixels(0, 1))
+					UI.semantic_height_set_next(&c, UI.pixels(10, 1))
+					UI.box_make({}, "", &c)
 
-				if .Clicked_Left in s.flags {
-					fmt.println("button", s.flags)
+					UI.semantic_width_set_next(&c, UI.text_content(1))
+					UI.semantic_height_set_next(&c, UI.text_content(1))
+					UI.background_color_set_next(&c, { 222, 22, 222, 255 })
+					button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button", &c)
+					s := UI.signal_from_box(button, &c)
+
+					if .Clicked_Left in s.flags {
+						fmt.println("button", s.flags)
+					}
+
+					UI.semantic_width_set_next(&c, UI.pixels(0, 1))
+					UI.semantic_height_set_next(&c, UI.pixels(10, 1))
+					UI.box_make({}, "", &c)
 				}
-
-				UI.semantic_width_set_next(&c, UI.pixels(10, 1))
-				UI.semantic_height_set_next(&c, UI.pixels(0, 1))
-				UI.box_make({}, "", &c)
 			}
 		}
 		UI.end(&c)
@@ -188,7 +193,7 @@ main :: proc() {
 
 		{
 			r := R.rect(
-				r     = { pos = run.metrics.pos + { 0, 800 } - { 2, 2 }, size = run.metrics.size + { 4, 4 } },
+				r     = { pos = run.visible.pos + { 0, 800 } - { 2, 2 }, size = run.visible.size + { 4, 4 } },
 				color = { 0, 0, 1, 1 },
 			)
 			r.color[._00] = { 1, 0, 0, 1 }

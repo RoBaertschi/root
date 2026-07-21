@@ -1,6 +1,9 @@
 #+private
 package root_window
 
+import "core:time"
+import "core:c"
+import "core:sys/posix"
 import "core:fmt"
 import "core:math/linalg"
 import "core:math/bits"
@@ -8,43 +11,59 @@ import "core:strings"
 import "core:log"
 import "base:runtime"
 import "core:mem/virtual"
-import wl "../wayland"
-import "../wayland/xdg"
 import "vendor:egl"
-import gl "vendor:OpenGL"
-import "../base"
 
+import B "../base"
+
+import "../wayland/xdg"
+import wl "../wayland"
+import xkb "xkbcommon"
+
+import gl "vendor:OpenGL"
 
 State :: struct {
-	ctx:         runtime.Context,
-	window_size: [2]i32,
-	arena:       virtual.Arena,
-	flags:       Window_Flags,
-	events:      Event_List,
-	dispatched:  bool,
+	ctx:                    runtime.Context,
+	window_size:            [2]i32,
+	arena:                  virtual.Arena,
+	flags:                  Window_Flags,
+	events:                 Event_List,
+	dispatched:             bool,
 
-	display:     ^wl.display,
-	registry:    ^wl.registry,
-	compositor:  ^wl.compositor,
-	shm:         ^wl.shm,
-	xdg_wm_base: ^xdg.wm_base,
-	seat:        ^wl.seat,
+	display:                ^wl.display,
+	registry:               ^wl.registry,
+	compositor:             ^wl.compositor,
+	shm:                    ^wl.shm,
+	xdg_wm_base:            ^xdg.wm_base,
+	seat:                   ^wl.seat,
 
 	capabilities:           Seat_Capabilities,
-	pointer:                ^wl.pointer,
+
+	pointer:                Maybe(^wl.pointer),
 	pointer_pos:            [2]f32,
 	cursor_image:           ^wl.cursor_image,
 	cursor_surface:         ^wl.surface,
+
+	xkb_ctx:                ^xkb.context_,
+	keyboard:               Maybe(^wl.keyboard),
+	keyboard_repeat_delay:  i32,
+	keyboard_repeat_rate:   i32,
+	keyboard_last_keycode:  xkb.keycode_t,
+	keyboard_next_deadline: time.Tick,
+	xkb_mapping:            ^xkb.keymap,
+	xkb_state:              ^xkb.state,
+	xkb_compose_table:      ^xkb.compose_table,
+	xkb_compose_state:      ^xkb.compose_state,
+
 	surface:                ^wl.surface,
 	region:                 ^wl.region,
 	xdg_surface:            ^xdg.surface,
 	xdg_surface_configured: bool,
 	xdg_toplevel:           ^xdg.toplevel,
 
-	egl_context: egl.Context,
-	egl_display: egl.Display,
-	egl_surface: egl.Surface,
-	egl_window:  ^wl.egl_window,
+	egl_context:            egl.Context,
+	egl_display:            egl.Display,
+	egl_surface:            egl.Surface,
+	egl_window:             ^wl.egl_window,
 }
 
 _state_allocator :: proc() -> runtime.Allocator {
@@ -65,6 +84,105 @@ Wl_Button :: enum u32 {
 	Left   = 0x110,
 	Right  = 0x111,
 	Middle = 0x112,
+}
+
+event_key_from_xkb_keysym :: proc(keysym: xkb.keysym_t) -> Event_Key {
+	#partial switch xkb.keysyms(keysym) {
+	case .a..=.z:       return .A + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.a))
+	case .A..=.Z:       return .A + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.A))
+	case ._0..=._9:     return .Num_0 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms._0))
+	case .F1..=.F12:    return .F1 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.F1))
+	case .KP_0..=.KP_9: return .Keypad_0 + Event_Key(keysym - xkb.keysym_t(xkb.keysyms.KP_0))
+
+	case .Escape:             return .Escape
+	case .Return:             return .Enter
+	case .Tab, .ISO_Left_Tab: return .Tab
+	case .BackSpace:          return .Backspace
+	case .Delete:             return .Delete
+	case .Insert:             return .Insert
+	case .space:              return .Space
+
+	case .Left:         return .Left
+	case .Right:        return .Right
+	case .Up:           return .Up
+	case .Down:         return .Down
+	case .Home:         return .Home
+	case .End:          return .End
+	case .Prior:        return .Page_Up
+	case .Next:         return .Page_Down
+	case .Shift_L:      return .Shift_Left
+	case .Shift_R:      return .Shift_Right
+	case .Control_L:    return .Control_Left
+	case .Control_R:    return .Control_Right
+	case .Alt_L:        return .Alt_Left
+	case .Alt_R:        return .Alt_Right
+	case .Super_L:      return .Super_Left
+	case .Super_R:      return .Super_Right
+
+	case .exclam:       return .Num_1
+	case .at:           return .Num_2
+	case .numbersign:   return .Num_3
+	case .dollar:       return .Num_4
+	case .percent:      return .Num_5
+	case .asciicircum:  return .Num_6
+	case .ampersand:    return .Num_7
+	case .asterisk:     return .Num_8
+	case .parenleft:    return .Num_9
+	case .parenright:   return .Num_0
+
+	case .minus, .underscore:        return .Minus
+	case .equal, .plus:              return .Equal
+	case .bracketleft, .braceleft:   return .Left_Bracket
+	case .bracketright, .braceright: return .Right_Bracket
+	case .backslash, .bar:           return .Backslash
+	case .semicolon, .colon:         return .Semicolon
+	case .apostrophe, .quotedbl:     return .Apostrophe
+	case .grave, .asciitilde:        return .Grave
+	case .comma, .less:              return .Comma
+	case .period, .greater:          return .Period
+	case .slash, .question:          return .Slash
+
+	case .Print:        return .Print_Screen
+	case .Pause:        return .Pause
+	case .Menu:         return .Menu
+
+	case .KP_Insert:    return .Keypad_0
+	case .KP_End:       return .Keypad_1
+	case .KP_Down:      return .Keypad_2
+	case .KP_Next:      return .Keypad_3
+	case .KP_Left:      return .Keypad_4
+	case .KP_Begin:     return .Keypad_5
+	case .KP_Right:     return .Keypad_6
+	case .KP_Home:      return .Keypad_7
+	case .KP_Up:        return .Keypad_8
+	case .KP_Prior:     return .Keypad_9
+	case .KP_Delete:    return .Keypad_Decimal
+	case .KP_Decimal:   return .Keypad_Decimal
+	case .KP_Divide:    return .Keypad_Divide
+	case .KP_Multiply:  return .Keypad_Multiply
+	case .KP_Subtract:  return .Keypad_Subtract
+	case .KP_Add:       return .Keypad_Add
+	case .KP_Enter:     return .Keypad_Enter
+	case .KP_Equal:     return .Keypad_Equal
+	}
+
+	return .Unknown
+}
+
+event_modifiers_from_xkb_state :: proc(xkb_state: ^xkb.state) -> (modifiers: Event_Modifiers) {
+	if xkb.state_mod_name_is_active(xkb_state, xkb.MOD_NAME_SHIFT, .MODS_EFFECTIVE) > 0 {
+		modifiers += {.Shift}
+	}
+	if xkb.state_mod_name_is_active(xkb_state, xkb.MOD_NAME_CTRL, .MODS_EFFECTIVE) > 0 {
+		modifiers += {.Control}
+	}
+	if xkb.state_mod_name_is_active(xkb_state, xkb.VMOD_NAME_ALT, .MODS_EFFECTIVE) > 0 {
+		modifiers += {.Alt}
+	}
+	if xkb.state_mod_name_is_active(xkb_state, xkb.VMOD_NAME_SUPER, .MODS_EFFECTIVE) > 0 {
+		modifiers += {.Super}
+	}
+	return
 }
 
 wl_pointer_listener := wl.pointer_listener{
@@ -96,7 +214,6 @@ wl_pointer_listener := wl.pointer_listener{
 		}
 
 		context = state.ctx
-		fmt.println("button")
 
 		event_list_push(
 			&state.events,
@@ -129,16 +246,188 @@ wl_pointer_listener := wl.pointer_listener{
 	},
 }
 
+push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Event_Key_State) {
+	event_list_push(
+		&state.events,
+		Event {
+			kind      = .Key,
+			modifiers = mods,
+			key       = event_key_from_xkb_keysym(keysym),
+			key_state = key_state,
+		},
+	)
+}
+
+keycode_pressed :: proc(keycode: xkb.keycode_t) {
+	keysym := xkb.state_key_get_one_sym(state.xkb_state, keycode)
+
+	if xkb.keymap_key_repeats(state.xkb_mapping, keycode) {
+		state.keyboard_last_keycode  = keycode
+		state.keyboard_next_deadline = time.tick_add(
+			time.tick_now(),
+			time.Duration(state.keyboard_repeat_delay) * time.Millisecond,
+		)
+	}
+
+	mods := event_modifiers_from_xkb_state(state.xkb_state)
+
+	if is_shortcut(keysym) {
+		push_keysym(keysym, mods, .Pressed)
+	} else {
+		temp := B.TEMP_ALLOCATOR_GUARD()
+		result := ""
+
+		key_get_utf8 :: proc(keycode: xkb.keycode_t, allocator: runtime.Allocator) -> string {
+			result_size := xkb.state_key_get_utf8(state.xkb_state, keycode, nil, 0)
+			if result_size <= 0 {
+				return ""
+			}
+
+			result_data := make([]u8, result_size + 1, allocator = allocator)
+			xkb.state_key_get_utf8(state.xkb_state, keycode, raw_data(result_data), len(result_data))
+			return string(cstring(raw_data(result_data)))
+		}
+
+		if state.xkb_compose_state != nil {
+			xkb.compose_state_feed(state.xkb_compose_state, keysym)
+			status := xkb.compose_state_get_status(state.xkb_compose_state)
+
+			switch status {
+			case .COMPOSING: // do nothing
+			case .COMPOSED:
+				result_size := xkb.compose_state_get_utf8(state.xkb_compose_state, nil, 0)
+				result_data := make([]u8, result_size + 1, allocator = temp)
+				xkb.compose_state_get_utf8(state.xkb_compose_state, raw_data(result_data), len(result_data))
+				xkb.compose_state_reset(state.xkb_compose_state)
+
+				result = string(cstring(raw_data(result_data)))
+			case .NOTHING:
+				result = key_get_utf8(keycode, temp)
+			case .CANCELLED:
+				xkb.compose_state_reset(state.xkb_compose_state)
+			}
+		} else {
+			result = key_get_utf8(keycode, temp)
+		}
+
+		if result != "" {
+			for r in result {
+				// TODO(robin): is this reasonable or should we pass the whole string?
+				log.debugf("rune: %r", r)
+				event_list_push(
+					&state.events,
+					{
+						kind      = .Codepoint,
+						codepoint = r,
+					},
+				)
+			}
+		}
+	}
+}
+
+is_shortcut :: proc(keysym: xkb.keysym_t) -> bool {
+	#partial switch xkb.keysyms(keysym) {
+	case .Control_L, .Control_R,
+		 .Super_L,   .Super_R:
+		return true
+	case:
+		mods := event_modifiers_from_xkb_state(state.xkb_state)
+		return .Control in mods || .Super in mods
+	}
+}
+
+wl_keyboard_listener := wl.keyboard_listener{
+	enter = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface, keys_: wl.array) {},
+	leave = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface)                  {},
+
+	keymap = proc "c"(data: rawptr, keyboard: ^wl.keyboard, format: wl.keyboard_keymap_format, fd: i32, size: u32) {
+		context = state.ctx
+
+		if format != .xkb_v1 {
+			log.errorf("unsupported wayland keyboard keymap format: %v", format)
+			return
+		}
+
+		keymap := posix.mmap(nil, c.size_t(size), { .READ }, { .PRIVATE }, posix.FD(fd))
+		if keymap == posix.MAP_FAILED {
+			log.errorf("could not map keymap file from wayland compositor: %v", posix.errno())
+			return
+		}
+ 
+		locale := posix.setlocale(.CTYPE, nil)
+
+		state.xkb_mapping       = xkb.keymap_new_from_string(state.xkb_ctx, cast(cstring)keymap, .TEXT_V1, {})
+		state.xkb_state         = xkb.state_new(state.xkb_mapping)
+		state.xkb_compose_table = xkb.compose_table_new_from_locale(state.xkb_ctx, locale, {})
+		if state.xkb_compose_table == nil {
+			log.errorf("could not create xkb compose table")
+		} else {
+			state.xkb_compose_state = xkb.compose_state_new(state.xkb_compose_table, {})
+		}
+	},
+
+	key = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial: u32, time_: u32, key: u32, key_state: wl.keyboard_key_state) {
+		context = state.ctx
+
+		keycode := xkb.keycode_t(key + 8)
+
+		switch key_state {
+		case .pressed, .repeated:  // .repeated is technically not because of the bound version but you never know
+			keycode_pressed(keycode)
+		case .released:
+			if key_state != .pressed {
+				if state.keyboard_last_keycode == keycode {
+					state.keyboard_next_deadline = {}
+				}
+
+				mods   := event_modifiers_from_xkb_state(state.xkb_state)
+				keysym := xkb.state_key_get_one_sym(state.xkb_state, keycode)
+				if is_shortcut(keysym) {
+					push_keysym(keysym, mods, .Released)
+				}
+
+				return
+			}
+		}
+	},
+
+	modifiers = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, mods_depressed_: u32, mods_latched_: u32, mods_locked_: u32, group_: u32) {
+		xkb.state_update_mask(
+			state.xkb_state,
+			xkb.mod_mask_t(mods_depressed_),
+			xkb.mod_mask_t(mods_latched_),
+			xkb.mod_mask_t(mods_locked_),
+			0,
+			0,
+			xkb.layout_index_t(group_),
+		)
+	},
+
+	repeat_info = proc "c"(data: rawptr, keyboard: ^wl.keyboard, rate: i32, delay: i32) {
+		state.keyboard_repeat_delay = delay
+		state.keyboard_repeat_rate  = rate
+	},
+}
+
 wl_seat_listener := wl.seat_listener{
 	capabilities = auto_cast proc "c"(data: rawptr, seat: ^wl.seat, capabilities: bit_set[Seat_Capability; i32]) {
 		state.capabilities = capabilities
 
 		if .pointer in state.capabilities {
 			state.pointer = wl.seat_get_pointer(seat)
-			wl.pointer_add_listener(state.pointer, &wl_pointer_listener, nil)
+			wl.pointer_add_listener(state.pointer.?, &wl_pointer_listener, nil)
 		} else if state.pointer != nil {
-			wl.pointer_release(state.pointer)
-			wl.pointer_destroy(state.pointer)
+			wl.pointer_release(state.pointer.?)
+			wl.pointer_destroy(state.pointer.?)
+		}
+
+		if .keyboard in state.capabilities {
+			state.keyboard = wl.seat_get_keyboard(seat)
+			wl.keyboard_add_listener(state.keyboard.?, &wl_keyboard_listener, nil)
+		} else if state.keyboard != nil {
+			wl.keyboard_release(state.keyboard.?)
+			wl.keyboard_destroy(state.keyboard.?)
 		}
 	},
 	name = proc "c"(data: rawptr, seat: ^wl.seat, name_: cstring) {},
@@ -223,6 +512,7 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	context.logger = log.create_console_logger(ident = "WINDOW")
 	state.ctx   = context
 	state.flags = { .Maximize_Supported, .Minimize_Supported, .Decoration_Context_Menu_Supported }
+	state.xkb_ctx = xkb.context_new({})
 
 	state.display = wl.display_connect(nil)
 	if state.display == nil {
@@ -404,13 +694,27 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 }
 
 _frame :: proc() {
+	context = state.ctx
 	state.dispatched = false
 	egl.SwapBuffers(state.egl_display, state.egl_surface)
+	event_list_clear(&state.events)
 }
 
 _events :: proc() -> ^Event_List {
+	context = state.ctx
+
+	// poll events once per frame
 	if !state.dispatched && wl.display_dispatch(state.display) == -1 {
 		log.errorf("could not dispatch wayland display: %v", wl.display_get_error(state.display))
+	}
+
+	// handle keyboard repeat
+	if (state.keyboard_next_deadline != time.Tick{} &&
+		time.tick_diff(time.tick_now(), state.keyboard_next_deadline) < 0) {
+
+		state.keyboard_next_deadline = time.tick_add(time.tick_now(), time.Second / time.Duration(state.keyboard_repeat_rate))
+
+		keycode_pressed(state.keyboard_last_keycode)
 	}
 
 	state.dispatched = true

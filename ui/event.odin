@@ -1,5 +1,6 @@
 package oui
 
+import "core:log"
 import "base:runtime"
 import "core:container/intrusive/list"
 
@@ -158,12 +159,15 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 events_from_w_events :: proc(c: ^Context, events: ^W.Event_List) -> (el: Event_List) {
 	event_list_init(&el, _context_curr_allocator(c))
 
-	for it := W.event_list_iterator(events^); event in W.event_list_iterate(&it) {
+	for it := W.event_list_iterator(events^); event, event_node in W.event_list_iterate(&it) {
+		remove := false
+
 		switch event.kind {
 		case .Close_Request: // ignore
 		case .Resize:        // ignore
+		case .Codepoint:     // TODO
 		case .Key:
-			switch event.key {
+			#partial switch event.key {
 			case .Mouse_Left, .Mouse_Right, .Mouse_Middle:
 				// Some sanity checks, should probably be removed at some point
 
@@ -182,7 +186,15 @@ events_from_w_events :: proc(c: ^Context, events: ^W.Event_List) -> (el: Event_L
 						pos  = event.pos,
 					},
 				)
+
+				remove = true
+			case:
+				log.infof("key not handled: %v", event)
 			}
+		}
+
+		if remove {
+			W.event_list_remove(events, event_node)
 		}
 	}
 

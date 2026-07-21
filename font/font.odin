@@ -123,7 +123,8 @@ Run :: struct {
 	// Data
 	glyphs:    Glyph_List,
 	graphemes: Grapheme_List,
-	metrics:   B.Rect(f32),
+	visible:   B.Rect(f32),
+	layout:    [2]f32,
 }
 
 Atlas_Node :: struct {
@@ -435,7 +436,7 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 			// TODO(robin): add
 
 			key.s = lru_clone_string(text)
-			glyphs, graphemes, metrics := shape_text(font_id, font_size, text)
+			glyphs, graphemes, visible, layout := shape_text(font_id, font_size, text)
 
 			MAX_LRU_ENTRIES :: 1024
 
@@ -455,7 +456,8 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 			run.lru_last_access_frame = state.run_lru_current_frame
 			run.key       = key
 			run.glyphs    = glyphs
-			run.metrics   = metrics
+			run.visible   = visible
+			run.layout    = layout
 			run.graphemes = graphemes
 			run.hash      = hash
 
@@ -483,7 +485,7 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 	}
 }
 
-shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, grl: Grapheme_List, metrics: B.Rect(f32)) {
+shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, grl: Grapheme_List, visible: B.Rect(f32), layout: [2]f32) {
 	font := _from_id(font_id)
 
 	if text == "" {
@@ -508,10 +510,13 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 
 	FT.Set_Pixel_Sizes(font.ft_face, 0, u32(font_size))
 
-	ascender := f32(font.ft_face.size.metrics.ascender) / 64
-	cursor   := [2]f32{ 0, ascender }
-	line     := 0
-	scale    := f32(font_size) / f32(font.units_per_em)
+	ascender    := f32(font.ft_face.size.metrics.ascender) / 64
+	cursor      := [2]f32{ 0, ascender }
+	scale       := f32(font_size) / f32(font.units_per_em)
+	line_height := f32(font.ft_face.size.metrics.height) / 64
+
+	line := 1
+	max_width: f32
 
 	P00_INIT :: [2]f32{ +math.INF_F32, +math.INF_F32 }
 	P11_INIT :: [2]f32{ -math.INF_F32, -math.INF_F32 }
@@ -525,9 +530,10 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 		run := kbts.ShapeRun(state.kbts_ctx) or_break
 
 		if .LINE_HARD in run.Flags {
-			line     += 1
-			cursor.y  = ascender + f32(font.ft_face.size.metrics.height) / 64 * f32(line)
+			max_width = max(max_width, cursor.x)
+			cursor.y  = ascender + line_height * f32(line)
 			cursor.x  = 0
+			line     += 1
 		}
 
 		for glyph in kbts.GlyphIteratorNext(&run.Glyphs) {
@@ -581,6 +587,8 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 		}
 	}
 
+	max_width = max(max_width, cursor.x)
+
 	if gl.last != nil {
 		gl.last.glyph.source.end = len(text)
 	}
@@ -596,9 +604,13 @@ shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List
 		p11 = {}
 	}
 
-	metrics = {
+	visible = {
 		pos  = p00,
 		size = p11 - p00,
+	}
+	layout = {
+		max_width,
+		f32(line) * line_height,
 	}
 	return
 }

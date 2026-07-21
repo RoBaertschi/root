@@ -7,6 +7,7 @@ Event_Kind :: enum {
 	Close_Request,
 	Resize,
 	Key,
+	Codepoint,
 }
 
 Event_Key_State :: enum {
@@ -15,18 +16,140 @@ Event_Key_State :: enum {
 }
 
 Event_Key :: enum {
+	Unknown,
+
 	Mouse_Left,
 	Mouse_Right,
 	Mouse_Middle,
+
+	Escape,
+	Enter,
+	Tab,
+	Backspace,
+	Delete,
+	Insert,
+	Space,
+
+	Left,
+	Right,
+	Up,
+	Down,
+	Home,
+	End,
+	Page_Up,
+	Page_Down,
+	Shift_Left,
+	Shift_Right,
+	Control_Left,
+	Control_Right,
+	Alt_Left,
+	Alt_Right,
+	Super_Left,
+	Super_Right,
+
+	A,
+	B,
+	C,
+	D,
+	E,
+	F,
+	G,
+	H,
+	I,
+	J,
+	K,
+	L,
+	M,
+	N,
+	O,
+	P,
+	Q,
+	R,
+	S,
+	T,
+	U,
+	V,
+	W,
+	X,
+	Y,
+	Z,
+
+	Num_0,
+	Num_1,
+	Num_2,
+	Num_3,
+	Num_4,
+	Num_5,
+	Num_6,
+	Num_7,
+	Num_8,
+	Num_9,
+
+	Minus,
+	Equal,
+	Left_Bracket,
+	Right_Bracket,
+	Backslash,
+	Semicolon,
+	Apostrophe,
+	Grave,
+	Comma,
+	Period,
+	Slash,
+
+	F1,
+	F2,
+	F3,
+	F4,
+	F5,
+	F6,
+	F7,
+	F8,
+	F9,
+	F10,
+	F11,
+	F12,
+
+	Print_Screen,
+	Pause,
+	Menu,
+
+	Keypad_0,
+	Keypad_1,
+	Keypad_2,
+	Keypad_3,
+	Keypad_4,
+	Keypad_5,
+	Keypad_6,
+	Keypad_7,
+	Keypad_8,
+	Keypad_9,
+	Keypad_Decimal,
+	Keypad_Divide,
+	Keypad_Multiply,
+	Keypad_Subtract,
+	Keypad_Add,
+	Keypad_Enter,
+	Keypad_Equal,
 }
+
+Event_Modifier :: enum {
+	Shift,
+	Control,
+	Alt,
+	Super,
+}
+
+Event_Modifiers :: bit_set[Event_Modifier]
 
 Event :: struct {
 	kind:      Event_Kind,
 	size:      [2]int,
-
 	pos:       [2]f32,
 	key:       Event_Key,
 	key_state: Event_Key_State,
+	modifiers: Event_Modifiers,
+	codepoint: rune,
 }
 
 Event_Node :: struct {
@@ -56,6 +179,14 @@ event_list_remove :: proc(el: ^Event_List, node: ^Event_Node) {
 	list.remove(&el.events, node)
 	list.push_front(&el.free_list, node)
 	el.len -= 1
+}
+
+event_list_clear :: proc(el: ^Event_List) {
+	el.len = 0
+
+	for it := event_list_iterator(el^); _, node in event_list_iterate(&it) {
+		event_list_remove(el, node)
+	}
 }
 
 Event_List_Iterator :: struct {

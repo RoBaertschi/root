@@ -20,12 +20,7 @@ render :: proc(c: ^Context) {
 		if .Draw_Background in b.flags {
 			att := b.att_rect
 
-			background_color := R.Color{
-				f32(att.background_color.r) / bits.U8_MAX,
-				f32(att.background_color.g) / bits.U8_MAX,
-				f32(att.background_color.b) / bits.U8_MAX,
-				f32(att.background_color.a) / bits.U8_MAX,
-			}
+			background_color := normalize_color(att.background_color)
 
 			rect               := R.rect(b.rect, background_color)
 			rect.corner_radius  = att.corner_radius
@@ -59,7 +54,7 @@ render :: proc(c: ^Context) {
 		}
 
 		if .Draw_Text in b.flags {
-			text := b.att_text
+			text  := b.att_text
 			color := normalize_color(text.color)
 
 			for it := F.glyph_list_iterator(text.run.glyphs); rglyph in F.glyph_list_iterate(&it) {
@@ -70,6 +65,13 @@ render :: proc(c: ^Context) {
 					texture = rglyph.glyph.atlas.texture,
 				)
 			}
+
+			debug_rect := R.rect(
+				r = { pos = text.run.visible.pos + b.rect.pos, size = text.run.visible.size },
+				color = { 0, 0, 0, 1 },
+			)
+			// debug_rect.corner_radius    = 4
+			debug_rect.border_thickness = 2
 		}
 
 		if .Draw_Custom in b.flags {

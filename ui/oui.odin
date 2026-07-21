@@ -1,6 +1,7 @@
 #+vet explicit-allocators
 package oui
 
+import "core:fmt"
 import "core:math"
 // TODO(robin): figure the allocation error story out
 
@@ -243,7 +244,7 @@ end :: proc(c: ^Context) {
 			b.computed_size[a] = size.value
 		case .Text_Content:
 			if b.att_text != nil {
-				b.computed_size[a] = b.att_text.run.metrics.size[a]
+				b.computed_size[a] = b.att_text.run.layout[a]
 			}
 		}
 
