@@ -49,6 +49,7 @@ state          :: struct {}
 keysym_t       :: distinct u32
 keycode_t      :: distinct u32
 mod_mask_t     :: distinct u32
+level_index_t  :: distinct u32
 layout_index_t :: distinct u32
 
 /** Flags for context creation. */
@@ -280,6 +281,37 @@ foreign lib {
      * @sa `xkb_state::xkb_state_key_get_utf32()`
      */
     keysym_to_utf32 :: proc(ks: keysym_t) -> rune ---
+
+	/**
+	 * Get the keysyms obtained from pressing a key in a given layout and
+	 * shift level.
+	 *
+	 * This function is like `xkb_state::xkb_state_key_get_syms()`, only the layout
+	 * and shift level are not derived from the keyboard state but are instead
+	 * specified explicitly.
+	 *
+	 * @param[in] keymap    The keymap.
+	 * @param[in] key       The keycode of the key.
+	 * @param[in] layout    The layout for which to get the keysyms.
+	 * @param[in] level     The shift level in the layout for which to get the
+	 * keysyms. This should be smaller than:
+	 * @code xkb_keymap_num_levels_for_key(keymap, key) @endcode
+	 * @param[out] syms_out An immutable array of keysyms corresponding to the
+	 * key in the given layout and shift level.
+	 *
+	 * If @c layout is out of range for this key (that is, larger or equal to
+	 * the value returned by `xkb_keymap_num_layouts_for_key()`), it is brought
+	 * back into range in a manner consistent with
+	 * `xkb_state::xkb_state_key_get_layout()`.
+	 *
+	 * @returns The number of keysyms in the syms_out array.  If no keysyms
+	 * are produced by the key in the given layout and shift level, returns 0
+	 * and sets @p syms_out to `NULL`.
+	 *
+	 * @sa `xkb_state::xkb_state_key_get_syms()`
+	 * @memberof xkb_keymap
+	 */
+	keymap_key_get_syms_by_level :: proc(keymap: ^keymap, key: keycode_t, layout: layout_index_t, level: level_index_t, syms_out: ^[^]keysym_t) -> c.int ---
 
     /**
      * Determine whether a key should repeat or not.

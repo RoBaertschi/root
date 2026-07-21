@@ -258,8 +258,20 @@ push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Even
 	)
 }
 
+keysym_from_keycode_level_0_only :: proc(keycode: xkb.keycode_t) -> xkb.keysym_t {
+	out_raw: [^]xkb.keysym_t
+	count := xkb.keymap_key_get_syms_by_level(state.xkb_mapping, keycode, 0, 0, &out_raw)
+	out := out_raw[:count]
+
+	if len(out) > 1 || len(out) < 1 {
+		return xkb.keysym_t(xkb.keysyms.NoSymbol)
+	}
+
+	return out[0]
+}
+
 keycode_pressed :: proc(keycode: xkb.keycode_t) {
-	keysym := xkb.state_key_get_one_sym(state.xkb_state, keycode)
+	keysym := keysym_from_keycode_level_0_only(keycode)
 
 	if xkb.keymap_key_repeats(state.xkb_mapping, keycode) {
 		state.keyboard_last_keycode  = keycode
@@ -382,7 +394,7 @@ wl_keyboard_listener := wl.keyboard_listener{
 				}
 
 				mods   := event_modifiers_from_xkb_state(state.xkb_state)
-				keysym := xkb.state_key_get_one_sym(state.xkb_state, keycode)
+				keysym := keysym_from_keycode_level_0_only(keycode)
 				if is_shortcut(keysym) {
 					push_keysym(keysym, mods, .Released)
 				}
