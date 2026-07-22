@@ -79,40 +79,14 @@ main :: proc() {
 			delta_time = current_time,
 		})
 		{
-			UI.corner_radius_guard(0.2)
-			UI.semantic_width_set_next(UI.pixels(200, 1))
-			UI.semantic_height_set_next(UI.pixels(400, 1))
-			UI.box_make({ .Draw_Background }, "")
-
-			UI.semantic_width_set_next(UI.children_sum(1))
-			UI.semantic_height_set_next(UI.children_sum(1))
-			UI.background_color_set_next({ 0.8, 0.1, 0.8, 1 })
-			b := UI.box_make({ .Draw_Background, .Draw_Clip, .Overflow_X }, "clipped")
-			{
-				UI.parent_guard(b)
-				UI.child_layout_axis_set_next(.Y)
-				par := UI.box_make({}, "")
-
-				{
-					UI.parent_guard(par)
-					UI.semantic_width_set_next(UI.pixels(0, 1))
-					UI.semantic_height_set_next(UI.pixels(10, 1))
-					UI.box_make({}, "")
-
-					UI.semantic_width_set_next(UI.text_content(1))
-					UI.semantic_height_set_next(UI.text_content(1))
-					UI.background_color_set_next({ 0.8, 0.1, 0.8, 1 })
-					button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button")
-					s := UI.signal_from_box(button)
-
-					if .Clicked_Left in s.flags {
-						fmt.println("button", s.flags)
-					}
-
-					UI.semantic_width_set_next(UI.pixels(0, 1))
-					UI.semantic_height_set_next(UI.pixels(10, 1))
-					UI.box_make({}, "")
-				}
+			UI.semantic_width_guard(UI.percent_of_parent(100, 1))
+			UI.semantic_height_guard(UI.percent_of_parent(100, 1))
+			UI.parent_guard(UI.box_make({}, ""))
+			UI.semantic_height_guard(UI.pixels(50, 1))
+			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
+			UI.parent_guard(UI.box_make({ .Draw_Background }, "title-bar"))
+			if UI.center(.Y) {
+				UI.label("nyx")
 			}
 		}
 		UI.end()
@@ -123,83 +97,83 @@ main :: proc() {
 		// 	}
 		// }
 
-		text := "Yolo!!!!????>= ==="
-
-		run := F.get_run(0, 64, text)
-
-		draw_text :: proc(pos: [2]f32, s: string) {
-			run := F.get_run(0, 32, s)
-
-			for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
-				_ = R.rect(
-					r       = { pos = rglyph.pos + pos, size = linalg.array_cast(rglyph.glyph.used_rect.size, f32) },
-					color   = { 0, 0, 0, 1 },
-					tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
-					texture = rglyph.glyph.atlas.texture,
-				)
-			}
-		}
-
-		temp := B.TEMP_ALLOCATOR_GUARD()
-		mouse_pos     := W.mouse()
-		mouse_pos_str := fmt.aprintf("x: %v, y: %v", mouse_pos.x, mouse_pos.y)
-		draw_text({}, mouse_pos_str)
-
-		gl := run.glyphs
-		for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
-			glyph_node := grapheme.start
-
-			for i in 0..<grapheme.count {
-				render_glyph := glyph_node.glyph
-
-				{
-					used_rect := B.rect_cast(render_glyph.glyph.used_rect, f32)
-
-					r := R.rect(
-						r       = { pos = render_glyph.pos + { 0, 800 }, size = used_rect.size },
-						color   = { 0, 0, 1, 1 },
-						tex_r   = used_rect,
-						texture = render_glyph.glyph.atlas.texture,
-					)
-
-					r.color[._00] = { 1, 0, 0, 1 }
-					r.color[._11] = { 1, 0, 0, 1 }
-					// r.edge_softness = 0.5
-					// r.corner_radius = 4
-
-					draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
-				}
-
-				glyph_node = glyph_node.next
-			}
-
-
-			// {
-			// 	r := R.rect(
-			// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
-			// 		color   = { 0, 0, 1, 1 },
-			// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
-			// 		// texture = render_glyph.glyph.atlas.texture,
-			// 	)
-			//
-			// 	// r.color[._10] = { 1, 0, 0, 1 }
-			// 	// r.color[._01] = { 1, 0, 0, 1 }
-			// 	r.edge_softness = 0.5
-			// 	r.corner_radius = 4
-			// 	r.border_thickness = 4
-			// }
-		}
-
-		{
-			r := R.rect(
-				r     = { pos = run.visible.pos + { 0, 800 } - { 2, 2 }, size = run.visible.size + { 4, 4 } },
-				color = { 0, 0, 1, 1 },
-			)
-			r.color[._00] = { 1, 0, 0, 1 }
-			r.color[._11] = { 1, 0, 0, 1 }
-			r.corner_radius = 4
-			r.border_thickness = 2
-		}
+		// text := "Yolo!!!!????>= ==="
+		//
+		// run := F.get_run(0, 64, text)
+		//
+		// draw_text :: proc(pos: [2]f32, s: string) {
+		// 	run := F.get_run(0, 32, s)
+		//
+		// 	for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
+		// 		_ = R.rect(
+		// 			r       = { pos = rglyph.pos + pos, size = linalg.array_cast(rglyph.glyph.used_rect.size, f32) },
+		// 			color   = { 0, 0, 0, 1 },
+		// 			tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
+		// 			texture = rglyph.glyph.atlas.texture,
+		// 		)
+		// 	}
+		// }
+		//
+		// temp := B.TEMP_ALLOCATOR_GUARD()
+		// mouse_pos     := W.mouse()
+		// mouse_pos_str := fmt.aprintf("x: %v, y: %v", mouse_pos.x, mouse_pos.y)
+		// draw_text({}, mouse_pos_str)
+		//
+		// gl := run.glyphs
+		// for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
+		// 	glyph_node := grapheme.start
+		//
+		// 	for i in 0..<grapheme.count {
+		// 		render_glyph := glyph_node.glyph
+		//
+		// 		{
+		// 			used_rect := B.rect_cast(render_glyph.glyph.used_rect, f32)
+		//
+		// 			r := R.rect(
+		// 				r       = { pos = render_glyph.pos + { 0, 800 }, size = used_rect.size },
+		// 				color   = { 0, 0, 1, 1 },
+		// 				tex_r   = used_rect,
+		// 				texture = render_glyph.glyph.atlas.texture,
+		// 			)
+		//
+		// 			r.color[._00] = { 1, 0, 0, 1 }
+		// 			r.color[._11] = { 1, 0, 0, 1 }
+		// 			// r.edge_softness = 0.5
+		// 			// r.corner_radius = 4
+		//
+		// 			draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
+		// 		}
+		//
+		// 		glyph_node = glyph_node.next
+		// 	}
+		//
+		//
+		// 	// {
+		// 	// 	r := R.rect(
+		// 	// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
+		// 	// 		color   = { 0, 0, 1, 1 },
+		// 	// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+		// 	// 		// texture = render_glyph.glyph.atlas.texture,
+		// 	// 	)
+		// 	//
+		// 	// 	// r.color[._10] = { 1, 0, 0, 1 }
+		// 	// 	// r.color[._01] = { 1, 0, 0, 1 }
+		// 	// 	r.edge_softness = 0.5
+		// 	// 	r.corner_radius = 4
+		// 	// 	r.border_thickness = 4
+		// 	// }
+		// }
+		//
+		// {
+		// 	r := R.rect(
+		// 		r     = { pos = run.visible.pos + { 0, 800 } - { 2, 2 }, size = run.visible.size + { 4, 4 } },
+		// 		color = { 0, 0, 1, 1 },
+		// 	)
+		// 	r.color[._00] = { 1, 0, 0, 1 }
+		// 	r.color[._11] = { 1, 0, 0, 1 }
+		// 	r.corner_radius = 4
+		// 	r.border_thickness = 2
+		// }
 
 		UI.render()
 

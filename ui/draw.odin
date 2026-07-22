@@ -55,12 +55,12 @@ render :: proc() {
 				)
 			}
 
-			debug_rect := R.rect(
-				r = { pos = text.run.visible.pos + b.rect.pos, size = text.run.visible.size },
-				color = { 0, 0, 0, 1 },
-			)
-			// debug_rect.corner_radius    = 4
-			debug_rect.border_thickness = 2
+			// debug_rect := R.rect(
+			// 	r = { pos = text.run.visible.pos + b.rect.pos, size = text.run.visible.size },
+			// 	color = { 0, 0, 0, 1 },
+			// )
+			// // debug_rect.corner_radius    = 4
+			// debug_rect.border_thickness = 2
 		}
 
 		if .Draw_Custom in b.flags {

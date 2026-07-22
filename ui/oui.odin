@@ -415,6 +415,11 @@ Axis :: enum {
 	Y,
 }
 
+axis_flip :: #force_inline proc(a: Axis) -> Axis {
+	// figure out a better way
+	return a == .X ? .Y : .X
+}
+
 Size_Kind :: enum u8 {
 	Null,
 	Pixels,
