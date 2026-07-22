@@ -584,6 +584,19 @@ xdg_toplevel_listener := xdg.toplevel_listener{
 		}
 
 		context = state.ctx
+		log.info(([^]u32)(states_.data)[:states_.size/size_of(u32)], states_)
+
+		for i in 0..<states_.size/size_of(u32) {
+			s := xdg.toplevel_state(([^]u32)(states_.data)[i])
+
+			#partial switch s {
+			case .maximized:
+				state.flags += {.Maximized}
+			}
+		}
+
+
+		context = state.ctx
 
 		new_size := [2]i32{width_, height_}
 		if state.window_size != new_size {
@@ -892,9 +905,7 @@ _toggle_maximize :: proc() {
 }
 
 _minimize :: proc() {
-	if .Minimized not_in state.flags {
-		xdg.toplevel_set_minimized(state.xdg_toplevel)
-	}
+	xdg.toplevel_set_minimized(state.xdg_toplevel)
 }
 
 _show_decoration_menu :: proc(pos: [2]f32, key: Interaction_Key) {

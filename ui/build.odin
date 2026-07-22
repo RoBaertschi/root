@@ -8,7 +8,7 @@ button :: proc(name: string) -> Signal {
 	semantic_height_set_next(text_content(1))
 	button := box_make(
 		{ .Draw_Background, .Clickable, .Draw_Hover, .Draw_Active, .Draw_Text },
-		name
+		name,
 	)
 
 	return signal_from_box(button)
@@ -19,6 +19,8 @@ buttonf :: proc(format: string, args: ..any) -> Signal {
 }
 
 label :: proc(text: string) {
+	semantic_width_set_next(text_content(1))
+	semantic_height_set_next(text_content(1))
 	label := box_make(
 		{ .Draw_Text },
 		text,
@@ -26,8 +28,6 @@ label :: proc(text: string) {
 }
 
 labelf :: proc(format: string, args: ..any) {
-	semantic_width_set_next(text_content(1))
-	semantic_height_set_next(text_content(1))
 	label(fmt.aprintf(format, ..args, allocator = build_allocator()))
 }
 
@@ -53,4 +53,18 @@ _center_end :: proc(a: Axis) {
 	spacer(a, percent_of_parent(100, 0))
 
 	pop_parent()
+}
+
+// Used like `if stack()`
+@(deferred_in=_stack_end)
+stack :: proc(a: Axis) -> bool {
+	child_layout_axis_push(a)
+	container := box_make({}, "")
+	push_parent(container)
+	return true
+}
+
+_stack_end :: proc(a: Axis) {
+	pop_parent()
+	assert(child_layout_axis_pop() == a)
 }

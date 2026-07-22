@@ -79,14 +79,32 @@ main :: proc() {
 			delta_time = current_time,
 		})
 		{
-			UI.semantic_width_guard(UI.percent_of_parent(100, 1))
-			UI.semantic_height_guard(UI.percent_of_parent(100, 1))
+			UI.semantic_width_guard(UI.percent_of_parent(1, 1))
+			UI.semantic_height_guard(UI.percent_of_parent(1, 1))
 			UI.parent_guard(UI.box_make({}, ""))
 			UI.semantic_height_guard(UI.pixels(50, 1))
 			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
-			UI.parent_guard(UI.box_make({ .Draw_Background }, "title-bar"))
+
+			title_bar := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
+			UI.parent_guard(title_bar)
+
 			if UI.center(.Y) {
-				UI.label("nyx")
+				UI.semantic_height_set_next(UI.children_sum(1))
+				if UI.stack(.X) {
+					UI.label("nyx")
+
+					UI.spacer(.X, UI.percent_of_parent(1, 0))
+
+					if .Minimize_Supported in W.flags() && .Clicked_Left in UI.button("minimize").flags {
+						W.minimize()
+					}
+					if .Maximize_Supported in W.flags() && .Clicked_Left in UI.button("maximize").flags {
+						W.toggle_maximize()
+					}
+					if .Clicked_Left in UI.button("close").flags {
+						run = false
+					}
+				}
 			}
 		}
 		UI.end()
@@ -175,7 +193,7 @@ main :: proc() {
 		// 	r.border_thickness = 2
 		// }
 
-		UI.render()
+		UI.render(false)
 
 		R.end_frame()
 		W.frame()

@@ -218,7 +218,6 @@ Window_Flag :: enum {
 	Decoration_Context_Menu_Supported,
 
 	Maximized,
-	Minimized,
 }
 
 Window_Flags :: bit_set[Window_Flag]
