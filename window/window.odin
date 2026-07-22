@@ -6,6 +6,8 @@ import "core:mem/virtual"
 
 import B "../base"
 
+Interaction_Key :: _Interaction_Key
+
 Event_Kind :: enum {
 	Close_Request,
 	Resize,
@@ -146,13 +148,14 @@ Event_Modifier :: enum {
 Event_Modifiers :: bit_set[Event_Modifier]
 
 Event :: struct {
-	kind:      Event_Kind,
-	size:      [2]int,
-	pos:       [2]f32,
-	key:       Event_Key,
-	key_state: Event_Key_State,
-	modifiers: Event_Modifiers,
-	codepoint: rune,
+	kind:        Event_Kind,
+	size:        [2]int,
+	pos:         [2]f32,
+	key:         Event_Key,
+	key_state:   Event_Key_State,
+	modifiers:   Event_Modifiers,
+	codepoint:   rune,
+	interaction: Interaction_Key,
 }
 
 Event_Node :: struct {
@@ -213,6 +216,9 @@ Window_Flag :: enum {
 	Maximize_Supported,
 	Minimize_Supported,
 	Decoration_Context_Menu_Supported,
+
+	Maximized,
+	Minimized,
 }
 
 Window_Flags :: bit_set[Window_Flag]
@@ -236,6 +242,27 @@ init :: proc(desc: Init_Description) -> bool {
 	return _init(desc)
 }
 
+Decoration_Hit_Result :: enum {
+	None,
+
+	Resize_Top,
+	Resize_Bottom,
+	Resize_Left,
+	Resize_Right,
+	Resize_Top_Left,
+	Resize_Bottom_Left,
+	Resize_Top_Right,
+	Resize_Bottom_Right,
+
+	Draggable,
+}
+
+Decoration_Hit_Proc :: #type proc(pos: [2]f32) -> Decoration_Hit_Result
+
+set_decoration_hit_callback :: proc(procedure: Decoration_Hit_Proc) {
+	_set_decoration_hit_callback(procedure)
+}
+
 frame :: proc() {
 	_frame()
 }
@@ -254,4 +281,19 @@ flags :: proc() -> Window_Flags {
 
 size :: proc() -> [2]int {
 	return _size()
+}
+
+toggle_maximize :: proc() {
+	_toggle_maximize()
+}
+
+minimize :: proc() {
+	_minimize()
+}
+
+show_decoration_menu :: proc(pos: [2]f32, key: Interaction_Key) {
+	_show_decoration_menu(
+		pos,
+		key,
+	)
 }

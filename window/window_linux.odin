@@ -20,6 +20,8 @@ import xkb "xkbcommon"
 
 import gl "vendor:OpenGL"
 
+_Interaction_Key :: distinct u32
+
 Key :: struct {
 	keysym: xkb.keysym_t,
 	key:    Event_Key,
@@ -51,12 +53,14 @@ State :: struct {
 	pointer_pos:            [2]f32,
 	cursor_image:           ^wl.cursor_image,
 	cursor_surface:         ^wl.surface,
+	decoration_hit_proc:    Decoration_Hit_Proc,
 
 	xkb_ctx:                ^xkb.context_,
 	keyboard:               Maybe(^wl.keyboard),
 	keyboard_repeat_delay:  i32,
 	keyboard_repeat_rate:   i32,
 	keyboard_last_keycode:  xkb.keycode_t,
+	keyboard_last_serial:   u32,
 	keyboard_next_deadline: time.Tick,
 	xkb_mapping:            ^xkb.keymap,
 	xkb_state:              ^xkb.state,
@@ -252,13 +256,45 @@ wl_pointer_listener := wl.pointer_listener{
 
 		context = state.ctx
 
+		if button_state == .pressed && state.decoration_hit_proc != nil {
+			result := state.decoration_hit_proc(state.pointer_pos)
+			switch result {
+			case .None:
+			case .Resize_Top..=.Resize_Bottom_Right:
+				@static
+				wl_resize_lookup := #partial [Decoration_Hit_Result]xdg.toplevel_resize_edge{
+					.Resize_Top          = .top,
+					.Resize_Bottom       = .bottom,
+					.Resize_Left         = .left,
+					.Resize_Right        = .right,
+					.Resize_Top_Left     = .top_left,
+					.Resize_Bottom_Left  = .bottom_left,
+					.Resize_Top_Right    = .top_right,
+					.Resize_Bottom_Right = .bottom_right,
+				}
+				xdg.toplevel_resize(
+					state.xdg_toplevel,
+					state.seat,
+					serial,
+					wl_resize_lookup[result],
+				)
+			case .Draggable:
+				xdg.toplevel_move(
+					state.xdg_toplevel,
+					state.seat,
+					serial,
+				)
+			}
+		}
+
 		event_list_push(
 			&state.events,
 			Event {
-				kind      = .Key,
-				pos       = state.pointer_pos,
-				key       = button_lookup[button],
-				key_state = button_state_lookup[button_state],
+				kind        = .Key,
+				pos         = state.pointer_pos,
+				key         = button_lookup[button],
+				key_state   = button_state_lookup[button_state],
+				interaction = Interaction_Key(serial),
 			},
 		)
 
@@ -283,7 +319,7 @@ wl_pointer_listener := wl.pointer_listener{
 	},
 }
 
-event_list_push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Event_Key_State) {
+event_list_push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_state: Event_Key_State, serial: u32) {
 	event_key := event_key_from_xkb_keysym(keysym)
 
 	switch key_state {
@@ -301,10 +337,11 @@ event_list_push_keysym :: proc(keysym: xkb.keysym_t, mods: Event_Modifiers, key_
 	event_list_push(
 		&state.events,
 		Event {
-			kind      = .Key,
-			modifiers = mods,
-			key       = event_key,
-			key_state = key_state,
+			kind        = .Key,
+			modifiers   = mods,
+			key         = event_key,
+			key_state   = key_state,
+			interaction = Interaction_Key(serial),
 		},
 	)
 }
@@ -321,11 +358,12 @@ keysym_from_keycode_level_0_only :: proc(keycode: xkb.keycode_t) -> xkb.keysym_t
 	return out[0]
 }
 
-keycode_pressed :: proc(keycode: xkb.keycode_t) {
+keycode_pressed :: proc(keycode: xkb.keycode_t, serial: u32) {
 	keysym := keysym_from_keycode_level_0_only(keycode)
 
 	if xkb.keymap_key_repeats(state.xkb_mapping, keycode) {
-		state.keyboard_last_keycode  = keycode
+		state.keyboard_last_keycode = keycode
+		state.keyboard_last_serial  = serial
 		state.keyboard_next_deadline = time.tick_add(
 			time.tick_now(),
 			time.Duration(state.keyboard_repeat_delay) * time.Millisecond,
@@ -335,7 +373,7 @@ keycode_pressed :: proc(keycode: xkb.keycode_t) {
 	mods := event_modifiers_from_xkb_state(state.xkb_state)
 
 	if is_shortcut(keysym) {
-		event_list_push_keysym(keysym, mods, .Pressed)
+		event_list_push_keysym(keysym, mods, .Pressed, serial)
 	} else {
 		temp := B.TEMP_ALLOCATOR_GUARD()
 		result := ""
@@ -413,7 +451,7 @@ is_shortcut :: proc(keysym: xkb.keysym_t) -> bool {
 wl_keyboard_listener := wl.keyboard_listener{
 	enter = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface, keys_: wl.array) {},
 
-	leave = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial_: u32, surface_: ^wl.surface) {
+	leave = proc "c"(data: rawptr, keyboard: ^wl.keyboard, serial: u32, surface_: ^wl.surface) {
 		context = state.ctx
 
 		node := state.pressed_keys
@@ -421,10 +459,11 @@ wl_keyboard_listener := wl.keyboard_listener{
 			event_list_push(
 				&state.events,
 				Event {
-					kind      = .Key,
-					key       = node.key.key,
-					key_state = .Released,
-					modifiers = event_modifiers_from_xkb_state(state.xkb_state),
+					kind        = .Key,
+					key         = node.key.key,
+					key_state   = .Released,
+					modifiers   = event_modifiers_from_xkb_state(state.xkb_state),
+					interaction = Interaction_Key(serial),
 				},
 			)
 
@@ -437,6 +476,7 @@ wl_keyboard_listener := wl.keyboard_listener{
 
 		xkb.state_update_mask(state.xkb_state, 0, 0, 0, 0, 0, 0)
 		state.keyboard_last_keycode  = {}
+		state.keyboard_last_serial   = {}
 		state.keyboard_next_deadline = {}
 
 		if state.xkb_compose_state != nil {
@@ -477,17 +517,18 @@ wl_keyboard_listener := wl.keyboard_listener{
 
 		switch key_state {
 		case .pressed, .repeated:  // .repeated is technically not because of the bound version but you never know
-			keycode_pressed(keycode)
+			keycode_pressed(keycode, serial)
 		case .released:
 			if key_state != .pressed {
 				if state.keyboard_last_keycode == keycode {
 					state.keyboard_next_deadline = {}
+					state.keyboard_last_serial   = {}
 				}
 
 				mods   := event_modifiers_from_xkb_state(state.xkb_state)
 				keysym := keysym_from_keycode_level_0_only(keycode)
 				if keysym_is_pressed(keysym) {
-					event_list_push_keysym(keysym, mods, .Released)
+					event_list_push_keysym(keysym, mods, .Released, serial)
 				}
 
 				return
@@ -796,6 +837,11 @@ _init :: proc(desc: Init_Description) -> (ok: bool) {
 	return
 }
 
+
+_set_decoration_hit_callback :: proc(procedure: Decoration_Hit_Proc) {
+	state.decoration_hit_proc = procedure
+}
+
 _frame :: proc() {
 	context = state.ctx
 	state.dispatched = false
@@ -817,7 +863,7 @@ _events :: proc() -> ^Event_List {
 
 		state.keyboard_next_deadline = time.tick_add(time.tick_now(), time.Second / time.Duration(state.keyboard_repeat_rate))
 
-		keycode_pressed(state.keyboard_last_keycode)
+		keycode_pressed(state.keyboard_last_keycode, state.keyboard_last_serial)
 	}
 
 	state.dispatched = true
@@ -835,4 +881,27 @@ _flags :: proc() -> Window_Flags {
 
 _size :: proc() -> [2]int {
 	return linalg.array_cast(state.window_size, int)
+}
+
+_toggle_maximize :: proc() {
+	if .Maximized in state.flags {
+		xdg.toplevel_unset_maximized(state.xdg_toplevel)
+	} else {
+		xdg.toplevel_set_maximized(state.xdg_toplevel)
+	}
+}
+
+_minimize :: proc() {
+	if .Minimized not_in state.flags {
+		xdg.toplevel_set_minimized(state.xdg_toplevel)
+	}
+}
+
+_show_decoration_menu :: proc(pos: [2]f32, key: Interaction_Key) {
+	xdg.toplevel_show_window_menu(
+		state.xdg_toplevel,
+		state.seat,
+		u32(key),
+		**B.array_cast(pos, i32),
+	)
 }
