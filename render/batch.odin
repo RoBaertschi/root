@@ -23,7 +23,7 @@ Batch_List :: struct {
 }
 
 batch_list_push :: proc(bl: ^Batch_List, batch: Batch) {
-	node       := frame_new(Batch_Node)
+	node       := B.arena_new(frame_arena(), Batch_Node)
 	node.batch  = batch
 	B.sll_insert(&bl.first, &bl.last, node)
 }

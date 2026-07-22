@@ -1,26 +1,15 @@
 package oui
 
-import "core:math/bits"
-
 import B "../base"
 import R "../render"
 import F "../font"
 
-render :: proc(c: ^Context) {
-	normalize_color :: proc(color: [4]u8) -> R.Color {
-		return {
-			f32(color.r) / bits.U8_MAX,
-			f32(color.g) / bits.U8_MAX,
-			f32(color.b) / bits.U8_MAX,
-			f32(color.a) / bits.U8_MAX,
-		}
-	}
-
+render :: proc() {
 	render_box :: proc(b: ^Box) {
 		if .Draw_Background in b.flags {
 			att := b.att_rect
 
-			background_color := normalize_color(att.background_color)
+			background_color := att.background_color
 
 			rect               := R.rect(b.rect, background_color)
 			rect.corner_radius  = att.corner_radius
@@ -55,7 +44,7 @@ render :: proc(c: ^Context) {
 
 		if .Draw_Text in b.flags {
 			text  := b.att_text
-			color := normalize_color(text.color)
+			color := text.color
 
 			for it := F.glyph_list_iterator(text.run.glyphs); rglyph in F.glyph_list_iterate(&it) {
 				_ = R.rect(
@@ -90,5 +79,5 @@ render :: proc(c: ^Context) {
 		}
 	}
 
-	render_box(c.root)
+	render_box(state.root)
 }

@@ -172,15 +172,13 @@ lru_clone_string :: proc(s: string) -> string {
 	)
 }
 
-@private
-state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(&state.arena)
+arena :: proc() -> ^virtual.Arena {
+	return &state.arena
 }
 
 @private
-state_new :: proc($T: typeid, loc := #caller_location) -> ^T {
-	ptr, _ := virtual.new(&state.arena, T, loc = loc)
-	return ptr
+state_allocator :: proc() -> runtime.Allocator {
+	return virtual.arena_allocator(arena())
 }
 
 state: ^State
@@ -227,15 +225,15 @@ init :: proc() -> (ok: bool) {
 	}
 
 	INITIAL_FONT_MAP_SIZE :: 64
-	state.font_map = make([]^Font, INITIAL_FONT_MAP_SIZE, allocator = state_allocator())
+	state.font_map = B.arena_make(arena(), []^Font, INITIAL_FONT_MAP_SIZE)
 	INITIAL_GLYPH_MAP_SIZE :: 1024
-	state.glyph_map = make([]^Glyph, INITIAL_GLYPH_MAP_SIZE, allocator = state_allocator())
+	state.glyph_map = B.arena_make(arena(), []^Glyph, INITIAL_GLYPH_MAP_SIZE)
 	INITIAL_RUN_MAP_SIZE :: 256
-	state.run_map = make([]^Run, INITIAL_RUN_MAP_SIZE, allocator = state_allocator())
+	state.run_map = B.arena_make(arena(), []^Run, INITIAL_RUN_MAP_SIZE)
 
 	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_FONT_MAP_SIZE)
 
-	font := state_new(Font)
+	font := B.arena_new(arena(), Font)
 
 	font.data = default_font_data
 
@@ -297,7 +295,7 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 	if bucket^ != nil {
 		font = bucket^
 	} else {
-		font = state_new(Font)
+		font = B.arena_new(arena(), Font)
 	}
 	bucket^         = font
 	font.hash       = hash
@@ -363,7 +361,7 @@ from_path :: proc(path: string, face_index: int) -> ID {
 
 	temp := B.TEMP_ALLOCATOR_GUARD()
 
-	// NOTE(robin): Perf this is meassured to be around 2 micro seconds
+	// NOTE(robin): Perf this is measured to be around 2 microseconds
 	//              If we find ourself calling `from_path` 100-1000's of times per frame
 	//              We might consider removing this and accepting the potentially higher
 	//              Memory usage due to duplication of font
@@ -444,7 +442,7 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 			last := container_of(state.run_lru.tail, Run, "lru_node")
 
 			if state.run_lru_len < MAX_LRU_ENTRIES || last.lru_last_access_frame == state.run_lru_current_frame {
-				run                = state_new(Run)
+				run                = B.arena_new(arena(), Run)
 				state.run_lru_len += 1
 			} else {
 				run = last
@@ -643,7 +641,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 				return glyph_map_get({ font = key.font, font_size = key.font_size, id = 0 })
 			}
 
-			glyph := state_new(Glyph)
+			glyph := B.arena_new(arena(), Glyph)
 
 			glyph.key         = key
 			glyph.hash        = h
@@ -677,7 +675,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 
 				atlas.size      = { ATLAS_SIZE, ATLAS_SIZE }
 				atlas.texture   = R.texture_from_size(linalg.array_cast(atlas.size, int))
-				atlas.root      = state_new(Atlas_Node)
+				atlas.root      = B.arena_new(arena(), Atlas_Node)
 
 				atlas.root.rect.size = atlas.size
 
@@ -738,7 +736,7 @@ atlas_upload_glyph :: proc(atlas: Atlas, glyph: ^Glyph, glyph_slot: ^FT.GlyphSlo
 	}
 
 	temp := B.TEMP_ALLOCATOR_GUARD()
-	buffer := make([]u8, buffer_size, allocator = temp)
+	buffer := B.arena_make(temp.arena, []u8, buffer_size)
 	pos := 0
 
 	if .Swizzle in flags {
@@ -788,7 +786,7 @@ atlas_find_and_take_fitting_node_for_size :: proc(node: ^Atlas_Node, glyph_size:
 	if node.rect.size.x > 8 && node.rect.size.y > 8 {
 		for &child, corner in node.children {
 			if child == nil {
-				child = state_new(Atlas_Node)
+				child = B.arena_new(arena(), Atlas_Node)
 
 				child.rect = {
 					pos  = node.rect.pos + (B.corner_vec(corner, u16) * (node.rect.size / 2)),

@@ -41,7 +41,7 @@ perf_push :: proc(procedure := #caller_location) {
 		node            = perf_state.free
 		perf_state.free = container_of(node.node.next, Perf_Node, "node")
 	} else {
-		node = new(Perf_Node, virtual.arena_allocator(&perf_state.arena))
+		node = arena_new(&perf_state.arena, Perf_Node)
 	}
 
 	node.start    = time.tick_now()

@@ -3,6 +3,22 @@ package root_base
 import "core:math/linalg"
 import "core:container/xar"
 import "core:fmt"
+import "core:mem/virtual"
+
+arena_new :: proc(arena: ^virtual.Arena, $T: typeid, loc := #caller_location) -> ^T {
+	value, _ := virtual.new(arena, T, loc = loc)
+	return value
+}
+
+arena_new_clone :: proc(arena: ^virtual.Arena, value: $T, loc := #caller_location) -> ^T {
+	clone, _ := virtual.new_clone(arena, value, loc = loc)
+	return clone
+}
+
+arena_make :: proc(arena: ^virtual.Arena, $T: typeid/[]$E, #any_int len: int, loc := #caller_location) -> T {
+	value, _ := virtual.make(arena, T, len, loc = loc)
+	return value
+}
 
 array_cast :: linalg.array_cast
 

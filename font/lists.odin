@@ -8,7 +8,7 @@ glyph_list_push :: proc(gl: ^Glyph_List, glyph: Render_Glyph) -> ^Glyph_Node {
 		node                  = state.glyph_node_free
 		state.glyph_node_free = node.next
 	} else {
-		node = state_new(Glyph_Node)
+		node = B.arena_new(arena(), Glyph_Node)
 	}
 
 	node.glyph = glyph
@@ -50,7 +50,7 @@ grapheme_list_push :: proc(gl: ^Grapheme_List, grapheme: Grapheme) -> ^Grapheme_
 		node            = state.grapheme_free
 		state.grapheme_free = node.next
 	} else {
-		node = state_new(Grapheme_Node)
+		node = B.arena_new(arena(), Grapheme_Node)
 	}
 
 	node.grapheme = grapheme

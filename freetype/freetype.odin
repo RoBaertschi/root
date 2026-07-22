@@ -2476,7 +2476,7 @@ Load_Flag :: enum {
 	ADVANCE_ONLY = 8,
 	SVG_ONLY     = 23,
 
-	// NOTE: TARGET_* are exposed trough the `load_flags()` procedure
+	// NOTE: TARGET_* are exposed through the `load_flags()` procedure
 
 	// TARGET_NORMAL = intrinsics.constant_log2(int((i32(Render_Mode.NORMAL) & 15) << 16)),
 	// TARGET_LIGHT  = intrinsics.constant_log2(((3 & 15) << 16)),

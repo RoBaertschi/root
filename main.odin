@@ -51,9 +51,8 @@ main :: proc() {
 
 	// R.texture_from_size({ 1024, 1024 })
 
-	c: UI.Context
-	UI.context_init(&c)
-	defer UI.context_fini(&c)
+	UI.init()
+	defer UI.fini()
 
 	last_time: time.Tick
 
@@ -78,45 +77,45 @@ main :: proc() {
 			root_key   = "",
 			root_size  = B.array_cast(W.size(), f32),
 			delta_time = current_time,
-		}, &c)
+		})
 		{
-			UI.corner_radius_guard(&c, 0.2)
-			UI.semantic_width_set_next(&c, UI.pixels(200, 1))
-			UI.semantic_height_set_next(&c, UI.pixels(400, 1))
-			UI.box_make({ .Draw_Background }, "", &c)
+			UI.corner_radius_guard(0.2)
+			UI.semantic_width_set_next(UI.pixels(200, 1))
+			UI.semantic_height_set_next(UI.pixels(400, 1))
+			UI.box_make({ .Draw_Background }, "")
 
-			UI.semantic_width_set_next(&c, UI.children_sum(1))
-			UI.semantic_height_set_next(&c, UI.children_sum(1))
-			UI.background_color_set_next(&c, { 222, 22, 222, 255 })
-			b := UI.box_make({ .Draw_Background, .Draw_Clip, .Overflow_X }, "clipped", &c)
+			UI.semantic_width_set_next(UI.children_sum(1))
+			UI.semantic_height_set_next(UI.children_sum(1))
+			UI.background_color_set_next({ 0.8, 0.1, 0.8, 1 })
+			b := UI.box_make({ .Draw_Background, .Draw_Clip, .Overflow_X }, "clipped")
 			{
-				UI.parent_guard(b, &c)
-				UI.child_layout_axis_set_next(&c, .Y)
-				par := UI.box_make({}, "", &c)
+				UI.parent_guard(b)
+				UI.child_layout_axis_set_next(.Y)
+				par := UI.box_make({}, "")
 
 				{
-					UI.parent_guard(par, &c)
-					UI.semantic_width_set_next(&c, UI.pixels(0, 1))
-					UI.semantic_height_set_next(&c, UI.pixels(10, 1))
-					UI.box_make({}, "", &c)
+					UI.parent_guard(par)
+					UI.semantic_width_set_next(UI.pixels(0, 1))
+					UI.semantic_height_set_next(UI.pixels(10, 1))
+					UI.box_make({}, "")
 
-					UI.semantic_width_set_next(&c, UI.text_content(1))
-					UI.semantic_height_set_next(&c, UI.text_content(1))
-					UI.background_color_set_next(&c, { 222, 22, 222, 255 })
-					button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button", &c)
-					s := UI.signal_from_box(button, &c)
+					UI.semantic_width_set_next(UI.text_content(1))
+					UI.semantic_height_set_next(UI.text_content(1))
+					UI.background_color_set_next({ 0.8, 0.1, 0.8, 1 })
+					button := UI.box_make({ .Draw_Text, .Draw_Background, .Draw_Hover, .Draw_Active, .Clickable }, "button")
+					s := UI.signal_from_box(button)
 
 					if .Clicked_Left in s.flags {
 						fmt.println("button", s.flags)
 					}
 
-					UI.semantic_width_set_next(&c, UI.pixels(0, 1))
-					UI.semantic_height_set_next(&c, UI.pixels(10, 1))
-					UI.box_make({}, "", &c)
+					UI.semantic_width_set_next(UI.pixels(0, 1))
+					UI.semantic_height_set_next(UI.pixels(10, 1))
+					UI.box_make({}, "")
 				}
 			}
 		}
-		UI.end(&c)
+		UI.end()
 
 		// for x in 0..<20 {
 		// 	for y in 0..<20 {
@@ -202,7 +201,7 @@ main :: proc() {
 			r.border_thickness = 2
 		}
 
-		UI.render(&c)
+		UI.render()
 
 		R.end_frame()
 		W.frame()

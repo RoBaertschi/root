@@ -84,7 +84,7 @@ hm_is_valid :: proc "contextless" (m: ^$D/Handle_Map($T, $Handle_Type), h: Handl
 	return h.idx >= 0 && int(u32(h.idx)) < xar.len(m.items) && xar.get_ptr_unsafe(&m.items, h.idx).handle == h
 }
 
-// NOTE: These functions don't really make sense for the way I intent to use the handle map.
+// NOTE: These functions don't really make sense for the way I intend to use the handle map.
 //       If ever needed, solve the problem of, does the default handle count.
 //
 // // Returns the number of possibly valid items in the handle map.

@@ -1,10 +1,10 @@
 package oui
 
 import "core:log"
-import "base:runtime"
 import "core:container/intrusive/list"
 
 import W "../window"
+import B "../base"
 
 Event_Kind :: enum {
 	None,
@@ -34,20 +34,11 @@ Event_Node :: struct {
 }
 
 Event_List :: struct {
-	nodes:     list.List,
-	allocator: runtime.Allocator,
-}
-
-// Do NOT use the standard allocator, this requires an allocator that can
-// free all allocations at once using something like free_all.
-// Ideally use mem.Arena or even better, virtual.Arena. context.temp_allocator also works if cleared on each frame.
-event_list_init :: proc(el: ^Event_List, allocator: runtime.Allocator) {
-	el.allocator = allocator
+	nodes: list.List,
 }
 
 event_list_push :: proc(el: ^Event_List, event: Event) {
-	assert(el.allocator.procedure != nil)
-	node := new_clone(Event_Node{ event = event }, allocator = el.allocator)
+	node := B.arena_new_clone(build_arena(), Event_Node{ event = event })
 	list.push_back(&el.nodes, &node.node)
 }
 
@@ -89,7 +80,7 @@ Signal :: struct {
 	flags: Signal_Flags,
 }
 
-signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
+signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 	clipped_rect := b.rect
 
 	for parent := b; parent != nil; parent = parent.parent {
@@ -98,10 +89,10 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 		}
 	}
 
-	for it := event_list_iterator(c.events); event, node in event_list_iterate(&it) {
+	for it := event_list_iterator(state.events); event, node in event_list_iterate(&it) {
 		consume := false
 		defer if consume {
-			event_list_remove(&c.events, node)
+			event_list_remove(&state.events, node)
 		}
 
 		is_mouse_event      := event.kind == .Pressed || event.kind == .Released
@@ -109,29 +100,29 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 
 		if is_mouse_event {
 			mouse_button := event_key_to_mouse_button(event.key)
-			if event.kind == .Released && c.mouse_button_active[mouse_button] == b.key {
+			if event.kind == .Released && state.mouse_button_active[mouse_button] == b.key {
 				s.flags += {
 					.Released_Left + Signal_Flag(mouse_button),
 					.Clicked_Left  + Signal_Flag(mouse_button),
 				}
-				c.mouse_button_active[mouse_button] = ""
+				state.mouse_button_active[mouse_button] = ""
 				consume = true
 			}
 
 			if event.kind == .Pressed && is_mouse_inside_box && .Clickable in b.flags {
 				s.flags                             += {.Pressed_Left + Signal_Flag(mouse_button)}
-				c.mouse_button_active[mouse_button]  = b.key
+				state.mouse_button_active[mouse_button]  = b.key
 
 				consume = true
 			}
 		}
 	}
 
-	if rect_contains(clipped_rect, c.mouse_pos) && c.mouse_hover == "" {
+	if rect_contains(clipped_rect, state.mouse_pos) && state.mouse_hover == "" {
 		s.flags += {.Hovering}
 		is_active := false
 
-		for key in c.mouse_button_active {
+		for key in state.mouse_button_active {
 			if key == b.key {
 				is_active = true
 				break
@@ -139,14 +130,14 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 		}
 
 		if !is_active {
-			c.mouse_hover = b.key
+			state.mouse_hover = b.key
 		}
-	} else if b.key == c.mouse_hover {
-		c.mouse_hover = ""
+	} else if b.key == state.mouse_hover {
+		state.mouse_hover = ""
 	}
 
 	if .Clickable in b.flags {
-		for key, mouse_button in c.mouse_button_active {
+		for key, mouse_button in state.mouse_button_active {
 			if key == b.key {
 				s.flags += {.Pressed_Left + Signal_Flag(mouse_button)}
 			}
@@ -156,9 +147,7 @@ signal_from_box :: proc(b: ^Box, c: ^Context) -> (s: Signal) {
 	return
 }
 
-events_from_w_events :: proc(c: ^Context, events: ^W.Event_List) -> (el: Event_List) {
-	event_list_init(&el, _context_curr_allocator(c))
-
+events_from_w_events :: proc(events: ^W.Event_List) -> (el: Event_List) {
 	for it := W.event_list_iterator(events^); event, event_node in W.event_list_iterate(&it) {
 		remove := false
 

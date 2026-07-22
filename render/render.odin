@@ -54,20 +54,18 @@ nil_texture: Texture_Handle
 @private
 state: ^State
 
+arena :: proc() -> ^virtual.Arena {
+	return &state.arena
+}
+
+@private
+frame_arena :: proc() -> ^virtual.Arena {
+	return &state.frame_arena
+}
+
 @private
 state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(&state.arena)
-}
-
-@private
-frame_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(&state.frame_arena)
-}
-
-@private
-frame_new :: proc($T: typeid, loc := #caller_location) -> ^T {
-	ptr, _ := virtual.new(&state.frame_arena, T, loc = loc)
-	return ptr
+	return virtual.arena_allocator(arena())
 }
 
 VERT_SHADER_SOURCE :: #load("vertex.glsl", string)

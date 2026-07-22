@@ -77,8 +77,8 @@ State :: struct {
 	egl_window:             ^wl.egl_window,
 }
 
-_state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(&state.arena)
+_arena :: proc() -> ^virtual.Arena {
+	return &state.arena
 }
 
 state: ^State
@@ -104,7 +104,7 @@ keysym_push :: proc(key: Key) {
 		state.free_keys = node.next
 		node^           = {}
 	} else {
-		node, _ = virtual.new(&state.arena, Key_Node)
+		node = B.arena_new(_arena(), Key_Node)
 	}
 
 	node.key           = key
@@ -340,13 +340,13 @@ keycode_pressed :: proc(keycode: xkb.keycode_t) {
 		temp := B.TEMP_ALLOCATOR_GUARD()
 		result := ""
 
-		key_get_utf8 :: proc(keycode: xkb.keycode_t, allocator: runtime.Allocator) -> string {
+		key_get_utf8 :: proc(keycode: xkb.keycode_t, arena: ^virtual.Arena) -> string {
 			result_size := xkb.state_key_get_utf8(state.xkb_state, keycode, nil, 0)
 			if result_size <= 0 {
 				return ""
 			}
 
-			result_data := make([]u8, result_size + 1, allocator = allocator)
+			result_data := B.arena_make(arena, []u8, result_size + 1)
 			xkb.state_key_get_utf8(state.xkb_state, keycode, raw_data(result_data), len(result_data))
 			return string(cstring(raw_data(result_data)))
 		}
@@ -359,18 +359,18 @@ keycode_pressed :: proc(keycode: xkb.keycode_t) {
 			case .COMPOSING: // do nothing
 			case .COMPOSED:
 				result_size := xkb.compose_state_get_utf8(state.xkb_compose_state, nil, 0)
-				result_data := make([]u8, result_size + 1, allocator = temp)
+				result_data := B.arena_make(temp.arena, []u8, result_size + 1)
 				xkb.compose_state_get_utf8(state.xkb_compose_state, raw_data(result_data), len(result_data))
 				xkb.compose_state_reset(state.xkb_compose_state)
 
 				result = string(cstring(raw_data(result_data)))
 			case .NOTHING:
-				result = key_get_utf8(keycode, temp)
+				result = key_get_utf8(keycode, temp.arena)
 			case .CANCELLED:
 				xkb.compose_state_reset(state.xkb_compose_state)
 			}
 		} else {
-			result = key_get_utf8(keycode, temp)
+			result = key_get_utf8(keycode, temp.arena)
 		}
 
 		if result != "" {

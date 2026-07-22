@@ -1,10 +1,10 @@
 #+vet explicit-allocators
 package oui
 
-import "core:fmt"
-import "core:math"
 // TODO(robin): figure the allocation error story out
 
+import "core:sync"
+import "core:math"
 import "core:strings"
 import "base:runtime"
 import "core:mem/virtual"
@@ -13,13 +13,14 @@ import "core:container/xar"
 import W "../window"
 import F "../font"
 import B "../base"
+import R "../render"
 
 // Based on https://www.dgtlgrove.com/p/ui-part-3-the-widget-building-language
 
 Arena :: virtual.Arena
 
-Rect :: B.Rect(f32)
-Color :: [4]u8
+Rect  :: B.Rect(f32)
+Color :: R.Color
 
 NULL_KEY :: ""
 
@@ -29,11 +30,9 @@ Mouse_Button :: enum {
 	Middle,
 }
 
-Context :: struct {
-	// TODO(robin): don't move the arenas, that's invalid
-	curr_arena: Arena,
-	prev_arena: Arena,
+State :: struct {
 	perm_arena: Arena,
+	arenas:     [2]Arena,
 
 	root:    ^Box,
 	current: ^Box,
@@ -64,101 +63,115 @@ Context :: struct {
 	//-external stuff
 }
 
-_context_curr_allocator :: proc(c: ^Context) -> runtime.Allocator {
-	return virtual.arena_allocator(&c.curr_arena)
+build_arena :: proc() -> ^Arena {
+	return &state.arenas[state.current_frame % 2]
 }
 
-_context_perm_allocator :: proc(c: ^Context) -> runtime.Allocator {
-	return virtual.arena_allocator(&c.perm_arena)
+build_allocator :: proc() -> runtime.Allocator {
+	return virtual.arena_allocator(build_arena())
 }
 
-context_init :: proc(c: ^Context) {
-	c^ = {}
-
-	_ = virtual.arena_init_growing(&c.curr_arena)
-	_ = virtual.arena_init_growing(&c.prev_arena)
-	_ = virtual.arena_init_growing(&c.perm_arena)
-
-	xar.init(&c.boxes, _context_perm_allocator(c))
+perm_arena :: proc() -> ^Arena {
+	return &state.perm_arena
 }
 
-context_fini :: proc(c: ^Context) {
-	virtual.arena_destroy(&c.curr_arena)
-	virtual.arena_destroy(&c.prev_arena)
-	virtual.arena_destroy(&c.perm_arena)
-
-	c^ = {}
+perm_allocator :: proc() -> runtime.Allocator {
+	return virtual.arena_allocator(perm_arena())
 }
 
-push_parent :: proc(b: ^Box, c: ^Context) {
-	if c.current == nil {
+init :: proc() {
+	state, _ = virtual.arena_growing_bootstrap_new(State, "perm_arena")
+
+	for &arena in state.arenas {
+		_ = virtual.arena_init_growing(&arena)
+	}
+
+	xar.init(&state.boxes, perm_allocator())
+}
+
+fini :: proc() {
+	for &arena in state.arenas {
+		virtual.arena_destroy(&arena)
+	}
+
+	// locking the arena before freeing it
+	sync.lock(&state.perm_arena.mutex)
+	local       := state.perm_arena
+	local.mutex  = {} // resetting the mutex, nobody except this function has the local copy of this mutex
+	virtual.arena_destroy(&local)
+
+	state = nil
+}
+
+push_parent :: proc(b: ^Box) {
+	if state.current == nil {
 		assert(b.parent == nil)
-		c.root    = b
-		c.current = b
+		state.root    = b
+		state.current = b
 
 		return
 	}
 
-	assert(c.current == b.parent)
-	c.current = b
+	assert(state.current == b.parent)
+	state.current = b
 }
 
-pop_parent :: proc(c: ^Context) -> ^Box {
-	old := c.current
+pop_parent :: proc() -> ^Box {
+	old := state.current
 	if old != nil {
-		c.current = old.parent
+		state.current = old.parent
 	}
 	return old
 }
 
-_parent_guard_end :: proc(b: ^Box, c: ^Context) {
-	old_box := pop_parent(c)
+_parent_guard_end :: proc(b: ^Box) {
+	old_box := pop_parent()
 	assert(old_box == b)
 }
 
 @(deferred_in=_parent_guard_end)
-parent_guard :: proc(b: ^Box, c: ^Context) {
-	push_parent(b, c)
+parent_guard :: proc(b: ^Box) {
+	push_parent(b)
 }
 
-semantic_size_set_next :: proc(c: ^Context, a: Axis, s: Size) {
+semantic_size_set_next :: proc(a: Axis, s: Size) {
 	@(static)
-	LUT := [Axis]#type proc(c: ^Context, s: Size){
+	LUT := [Axis]#type proc(s: Size){
 		.X = semantic_width_set_next,
 		.Y = semantic_height_set_next,
 	}
 
-	LUT[a](c, s)
+	LUT[a](s)
 }
 
-semantic_size_push :: proc(c: ^Context, a: Axis, s: Size) {
+semantic_size_push :: proc(a: Axis, s: Size) {
 	@(static)
-	LUT := [Axis]#type proc(c: ^Context, s: Size){
+	LUT := [Axis]#type proc(s: Size){
 		.X = semantic_width_push,
 		.Y = semantic_height_push,
 	}
 
-	LUT[a](c, s)
+	LUT[a](s)
 }
 
-semantic_size_pop :: proc(c: ^Context, a: Axis) -> Size {
+semantic_size_pop :: proc(a: Axis) -> Size {
 	@(static)
-	LUT := [Axis]#type proc(c: ^Context) -> Size{
+	LUT := [Axis]#type proc() -> Size{
 		.X = semantic_width_pop,
 		.Y = semantic_height_pop,
 	}
 
-	return LUT[a](c)
+	return LUT[a]()
 }
 
-semantic_size_top :: proc(c: ^Context, a: Axis) -> Size {
+semantic_size_top :: proc(a: Axis) -> Size {
 	@(static)
-	LUT := [Axis]#type proc(c: ^Context) -> Size{
+	LUT := [Axis]#type proc() -> Size{
 		.X = semantic_width_top,
 		.Y = semantic_height_top,
 	}
 
-	return LUT[a](c)
+	return LUT[a]()
 }
 
 Begin_Description :: struct {
@@ -167,37 +180,32 @@ Begin_Description :: struct {
 	delta_time: f32,
 }
 
-begin :: proc(desc: Begin_Description, c: ^Context) {
-	c.current_frame += 1
+begin :: proc(desc: Begin_Description) {
+	temp_interned_strings       := state.curr_interned_strings
+	state.curr_interned_strings  = state.prev_interned_strings
+	state.prev_interned_strings  = temp_interned_strings
 
-	temp_interned_strings   := c.curr_interned_strings
-	c.curr_interned_strings  = c.prev_interned_strings
-	c.prev_interned_strings  = temp_interned_strings
+	state.current_frame += 1
+	virtual.arena_free_all(build_arena())
 
-	delete(c.curr_interned_strings)
-	c.curr_interned_strings = make(map[string]^Box, allocator = _context_curr_allocator(c))
+	delete(state.curr_interned_strings)
+	state.curr_interned_strings = make(map[string]^Box, allocator = build_allocator())
 
-	temp_arena   := c.curr_arena
-	c.curr_arena  = c.prev_arena
-	c.prev_arena  = temp_arena
+	state.root, state.current = nil, nil
 
-	c.root, c.current = nil, nil
+	init_stacks()
 
-	virtual.arena_free_all(&c.curr_arena)
+	state.events     = events_from_w_events(W.events())
+	state.mouse_pos  = W.mouse()
+	state.delta_time = desc.delta_time
 
-	init_stacks(c)
+	semantic_width_set_next(pixels(desc.root_size.x, 1))
+	semantic_height_set_next(pixels(desc.root_size.y, 1))
 
-	c.events     = events_from_w_events(c, W.events())
-	c.mouse_pos  = W.mouse()
-	c.delta_time = desc.delta_time
-
-	semantic_width_set_next(c, pixels(desc.root_size.x, 1))
-	semantic_height_set_next(c, pixels(desc.root_size.y, 1))
-
-	c.root = box_make({}, desc.root_key, c)
+	state.root = box_make({}, desc.root_key)
 }
 
-end :: proc(c: ^Context) {
+end :: proc() {
 	Mode :: enum {
 		Sum,
 		Max,
@@ -236,7 +244,7 @@ end :: proc(c: ^Context) {
 		return false
 	}
 
-	calculate_standalone_sizes :: proc(c: ^Context, b: ^Box, a: Axis) {
+	calculate_standalone_sizes :: proc(b: ^Box, a: Axis) {
 		size := b.semantic_size[a]
 
 		#partial switch size.kind {
@@ -249,11 +257,11 @@ end :: proc(c: ^Context) {
 		}
 
 		for child := b.first; child != nil; child = child.next {
-			calculate_standalone_sizes(c, child, a)
+			calculate_standalone_sizes(child, a)
 		}
 	}
 
-	calculate_upwards_dependent :: proc(c: ^Context, b: ^Box, a: Axis) {
+	calculate_upwards_dependent :: proc(b: ^Box, a: Axis) {
 		size := b.semantic_size[a]
 
 		#partial switch size.kind {
@@ -262,13 +270,13 @@ end :: proc(c: ^Context) {
 		}
 
 		for child := b.first; child != nil; child = child.next {
-			calculate_upwards_dependent(c, child, a)
+			calculate_upwards_dependent(child, a)
 		}
 	}
 
-	calculate_downwards_dependent :: proc(c: ^Context, b: ^Box, a: Axis) {
+	calculate_downwards_dependent :: proc(b: ^Box, a: Axis) {
 		for child := b.first; child != nil; child = child.next {
-			calculate_downwards_dependent(c, child, a)
+			calculate_downwards_dependent(child, a)
 		}
 
 		size := b.semantic_size[a]
@@ -279,7 +287,7 @@ end :: proc(c: ^Context) {
 		}
 	}
 
-	solve_violations :: proc(c: ^Context, b: ^Box, a: Axis) {
+	solve_violations :: proc(b: ^Box, a: Axis) {
 		if box_is_overflow_on_axis(b, a) {
 			return
 		}
@@ -323,11 +331,11 @@ end :: proc(c: ^Context) {
 		}
 
 		for child := b.first; child != nil; child = child.next {
-			solve_violations(c, child, a)
+			solve_violations(child, a)
 		}
 	}
 
-	calculate_relative_positions :: proc(c: ^Context, b: ^Box, pos: [Axis]f32) {
+	calculate_relative_positions :: proc(b: ^Box, pos: [Axis]f32) {
 		b.computed_rel_position = pos
 		b.rect = {
 			pos  = transmute([2]f32)pos,
@@ -338,30 +346,30 @@ end :: proc(c: ^Context) {
 
 		new_pos := pos
 		for child := b.first; child != nil; child = child.next {
-			calculate_relative_positions(c, child, new_pos)
+			calculate_relative_positions(child, new_pos)
 
 			new_pos[stack_direction] += child.computed_size[stack_direction]
 		}
 	}
 
-	autolayout_axis :: proc(c: ^Context, b: ^Box, a: Axis) {
-		calculate_standalone_sizes(c, b, a)
-		calculate_upwards_dependent(c, b, a)
-		calculate_downwards_dependent(c, b, a)
-		solve_violations(c, b, a)
+	autolayout_axis :: proc(b: ^Box, a: Axis) {
+		calculate_standalone_sizes(b, a)
+		calculate_upwards_dependent(b, a)
+		calculate_downwards_dependent(b, a)
+		solve_violations(b, a)
 	}
 
-	autolayout_axis(c, c.root, .X)
-	autolayout_axis(c, c.root, .Y)
-	calculate_relative_positions(c, c.root, {})
+	autolayout_axis(state.root, .X)
+	autolayout_axis(state.root, .Y)
+	calculate_relative_positions(state.root, {})
 
-	animate :: proc(c: ^Context) {
-		transition := math.pow(f32(2), -40 * c.delta_time)
-		for key, b in c.curr_interned_strings {
-			is_hovered := c.mouse_hover == key
+	animate :: proc() {
+		transition := math.pow(f32(2), -40 * state.delta_time)
+		for key, b in state.curr_interned_strings {
+			is_hovered := state.mouse_hover == key
 			is_active  := false
 
-			for mb_key in c.mouse_button_active {
+			for mb_key in state.mouse_button_active {
 				if key == mb_key {
 					is_active = true
 					break
@@ -373,32 +381,32 @@ end :: proc(c: ^Context) {
 		}
 	}
 
-	animate(c)
+	animate()
 
 	// Ensure to use valid keys
-	for &mb in c.mouse_button_active {
-		if mb in c.curr_interned_strings {
-			b  := c.curr_interned_strings[mb]
+	for &mb in state.mouse_button_active {
+		if mb in state.curr_interned_strings {
+			b  := state.curr_interned_strings[mb]
 			mb  = b.key
 		} else {
 			mb = ""
 		}
 	}
 
-	c.mouse_hover = ""
+	state.mouse_hover = ""
 
 	// Free unused boxes
 
-	for it := xar.iterator(&c.boxes); w in xar.iterate_by_ptr(&it) {
+	for it := xar.iterator(&state.boxes); w in xar.iterate_by_ptr(&it) {
 		if ._Free in w.flags {
 			continue
 		}
 
-		if w.framed == c.current_frame {
+		if w.framed == state.current_frame {
 			continue
 		}
 
-		box_free(w, c)
+		box_free(w)
 	}
 }
 
@@ -521,23 +529,24 @@ Box :: struct {
 	//-persistent data
 }
 
-global_context: Context
+@private
+state: ^State
 
-context_insert_child_box :: proc(c: ^Context, b: ^Box) {
+insert_child_box :: proc(b: ^Box) {
 	// Reset all tree data
 	b.first, b.last = nil, nil
 	b.next,  b.prev = nil, nil
 	b.parent        = nil
 
-	if c.current == nil {
+	if state.current == nil {
 		// Make as new root
-		c.root    = b
-		c.current = b
+		state.root    = b
+		state.current = b
 		return
 	}
 
-	curr := c.current
-	last := c.current.last
+	curr := state.current
+	last := state.current.last
 
 	b.parent = curr
 
@@ -551,15 +560,15 @@ context_insert_child_box :: proc(c: ^Context, b: ^Box) {
 	}
 }
 
-box_intern_key :: proc(b: ^Box, c: ^Context) {
+box_intern_key :: proc(b: ^Box) {
 	if b.key == NULL_KEY {
 		b.key = NULL_KEY // Make sure to use the static string and not the potentially user allocated one
 		return
 	}
 
-	if interned_w, w_found := c.curr_interned_strings[b.key]; w_found {
+	if interned_w, w_found := state.curr_interned_strings[b.key]; w_found {
 		if interned_w == nil {
-			c.curr_interned_strings[b.key] = b
+			state.curr_interned_strings[b.key] = b
 			return
 		}
 
@@ -569,68 +578,68 @@ box_intern_key :: proc(b: ^Box, c: ^Context) {
 			panic("duplicate box key")
 		}
 
-		// already proberly interned
+		// already properly interned
 		return
 	}
 
-	interned_string                          := strings.clone(b.key, _context_curr_allocator(c))
-	c.curr_interned_strings[interned_string]  = b
-	b.key                                     = interned_string
+	interned_string                              := strings.clone(b.key, build_allocator())
+	state.curr_interned_strings[interned_string]  = b
+	b.key                                         = interned_string
 }
 
-box_mark_used :: proc(b: ^Box, c: ^Context) {
-	b.framed = c.current_frame
+box_mark_used :: proc(b: ^Box) {
+	b.framed = state.current_frame
 }
 
-box_new :: proc(c: ^Context) -> ^Box {
-	if w := c.free_box; w != nil {
-		c.free_box = w.next
+box_new :: proc() -> ^Box {
+	if w := state.free_box; w != nil {
+		state.free_box = w.next
 		ensure(._Free in w.flags)
 		w^ = {
-			framed = c.current_frame
+			framed = state.current_frame
 		}
 		return w
 	}
 
-	w, _ := xar.append_and_get_ptr(&c.boxes, Box{})
+	w, _ := xar.append_and_get_ptr(&state.boxes, Box{})
 	return w
 }
 
-box_free :: proc(b: ^Box, c: ^Context) {
+box_free :: proc(b: ^Box) {
 	// NOTE: Keys are recycled automatically
 	b^ = {
-		next  = c.free_box,
+		next  = state.free_box,
 		flags = { ._Free },
 	}
 
-	c.free_box = b
+	state.free_box = b
 }
 
-box_attach_text :: proc(b: ^Box, text: string, c: ^Context) {
+box_attach_text :: proc(b: ^Box, text: string) {
 	// TODO(robin): better text handling?
-	cloned_text := strings.clone(text, _context_curr_allocator(c))
+	cloned_text := strings.clone(text, build_allocator())
 
 	if b.att_text == nil {
-		b.att_text = new(Box_Attachment_Text, _context_curr_allocator(c))
+		b.att_text = B.arena_new(build_arena(), Box_Attachment_Text)
 	}
 
-	b.att_text.content = text
+	b.att_text.content = cloned_text
 	b.att_text.run     = F.get_run(0, 24, text)
-	b.att_text.color   = text_color_top(c)
+	b.att_text.color   = text_color_top()
 }
 
-box_attach_rect :: proc(b: ^Box, c: ^Context) {
+box_attach_rect :: proc(b: ^Box) {
 	if b.att_rect == nil {
-		b.att_rect = new(Box_Attachment_Rect, _context_curr_allocator(c))
+		b.att_rect = B.arena_new(build_arena(), Box_Attachment_Rect)
 	}
 
-	b.att_rect.background_color = background_color_top(c)
-	b.att_rect.corner_radius    = corner_radius_top(c)
+	b.att_rect.background_color = background_color_top()
+	b.att_rect.corner_radius    = corner_radius_top()
 }
 
-box_attach_draw :: proc(b: ^Box, procedure: Custom_Draw_Proc, user_data: rawptr, c: ^Context) {
+box_attach_draw :: proc(b: ^Box, procedure: Custom_Draw_Proc, user_data: rawptr) {
 	if b.att_draw == nil {
-		b.att_draw = new(Box_Attachment_Draw, _context_curr_allocator(c))
+		b.att_draw = B.arena_new(build_arena(), Box_Attachment_Draw)
 	}
 
 	b.att_draw^ = {
@@ -642,108 +651,46 @@ box_attach_draw :: proc(b: ^Box, procedure: Custom_Draw_Proc, user_data: rawptr,
 /*
 Creates a new box. Uses the cache to reuse if possible. `key` is used as the key and interned.
 
-WARN: Key collisions currently result in an `panic()` so be carefull.
+WARN: Key collisions currently result in an `panic()` so be careful.
 
 NOTE: `key` only needs to be valid for this function call
 */
-box_make :: proc(flags: Box_Flags, key: string, c: ^Context) -> (b: ^Box) {
+box_make :: proc(flags: Box_Flags, key: string) -> (b: ^Box) {
 	ensure(._Free not_in flags)
 
-	_box_get_cached :: proc(key: string, c: ^Context) -> (b: ^Box, ok: bool) {
-		b = c.prev_interned_strings[key] or_return
+	_box_get_cached :: proc(key: string) -> (b: ^Box, ok: bool) {
+		b = state.prev_interned_strings[key] or_return
 		ensure(._Free not_in b.flags)
 		ok = true
 		return
 	}
 
 	// NOTE(robin): why not zero? -> The permanent data must be retained, so we don't zero the full box
-	b       = _box_get_cached(key, c) or_else box_new(c)
+	b       = _box_get_cached(key) or_else box_new()
 	b.flags = flags
 	b.key   = key
 
 	b.att_rect = nil
 	b.att_text = nil
 
-	box_intern_key(b, c)
-	box_mark_used(b, c)
+	box_intern_key(b)
+	box_mark_used(b)
 
 	if .Draw_Background in flags {
-		box_attach_rect(b, c)
+		box_attach_rect(b)
 	}
 
 	if .Draw_Text in flags {
-		box_attach_text(b, key, c)
+		box_attach_text(b, key)
 	}
 
-	context_insert_child_box(c, b)
+	insert_child_box(b)
 
-	b.semantic_size[.X] = semantic_width_top(c)
-	b.semantic_size[.Y] = semantic_height_top(c)
-	b.child_layout_axis = child_layout_axis_top(c)
+	b.semantic_size[.X] = semantic_width_top()
+	b.semantic_size[.Y] = semantic_height_top()
+	b.child_layout_axis = child_layout_axis_top()
 
-	auto_pop_stacks(c)
+	auto_pop_stacks()
 
 	return b
 }
-
-// main :: proc() {
-// 	context_init(
-// 		&global_context,
-// 		{
-// 			meassure_text = proc(_: rawptr, s: string, _: Axis) -> f32 {
-// 				return 3
-// 			}
-// 		},
-// 	)
-//
-// 	desc := Begin_Description{ root_size = { 800, 600 }, root_key = "root", events = {} }
-// 	begin(desc, &global_context)
-//
-// 	{
-// 		semantic_width_guard(&global_context, pixels(20, 1))
-// 		semantic_height_guard(&global_context, pixels(40, 1))
-//
-// 		semantic_width_set_next(&global_context, children_sum(1))
-// 		semantic_height_set_next(&global_context, children_sum(1))
-// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-//
-// 		box_make({}, "World", &global_context)
-// 		box_make({}, "World2", &global_context)
-// 		box_make({}, "World3", &global_context)
-// 	}
-//
-// 	end(&global_context)
-//
-// 	fmt.printfln("%#v", global_context)
-//
-// 	begin(desc, &global_context)
-//
-// 	{
-// 		semantic_width_guard(&global_context, pixels(20, 1))
-// 		semantic_height_guard(&global_context, pixels(40, 1))
-//
-// 		semantic_width_set_next(&global_context, children_sum(1))
-// 		semantic_height_set_next(&global_context, children_sum(1))
-// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-// 		box_make({}, "World", &global_context)
-// 		box_make({}, "World2", &global_context)
-// 		box_make({}, "World3", &global_context)
-// 	}
-//
-// 	end(&global_context)
-//
-// 	begin(desc, &global_context)
-//
-// 	{
-// 		semantic_width_guard(&global_context, pixels(20, 1))
-// 		semantic_height_guard(&global_context, pixels(40, 1))
-//
-// 		semantic_width_set_next(&global_context, children_sum(1))
-// 		semantic_height_set_next(&global_context, children_sum(1))
-// 		parent_guard(box_make({}, "Hello", &global_context), &global_context)
-// 	}
-//
-// 	end(&global_context)
-//
-// 	fmt.printfln("%#v", global_context)
-// }

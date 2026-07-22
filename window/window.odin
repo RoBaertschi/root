@@ -2,6 +2,9 @@ package root_window
 
 import "base:runtime"
 import "core:container/intrusive/list"
+import "core:mem/virtual"
+
+import B "../base"
 
 Event_Kind :: enum {
 	Close_Request,
@@ -167,7 +170,7 @@ event_list_push :: proc(el: ^Event_List, ev: Event) -> (ev_node: ^Event_Node) {
 	if node := list.pop_back(&el.free_list); node != nil {
 		ev_node = container_of(node, Event_Node, "node")
 	} else {
-		ev_node = new(Event_Node, allocator = state_allocator())
+		ev_node = B.arena_new(arena(), Event_Node)
 	}
 	ev_node.event = ev
 	list.push_back(&el.events, ev_node)
@@ -215,8 +218,13 @@ Window_Flag :: enum {
 Window_Flags :: bit_set[Window_Flag]
 
 @private
+arena :: proc() -> ^virtual.Arena {
+	return _arena()
+}
+
+@private
 state_allocator :: proc() -> runtime.Allocator {
-	return _state_allocator()
+	return virtual.arena_allocator(arena())
 }
 
 Init_Description :: struct {

@@ -3,6 +3,8 @@ package oui
 import "base:intrinsics"
 import "base:runtime"
 
+import B "../base"
+
 sll_push :: proc(base, last: ^^$T, item: ^T) where intrinsics.type_has_field(T, "next"), intrinsics.type_field_type(T, "next") == ^T {
 	if last^ == nil || base^ == nil {
 		last^     = item
@@ -63,13 +65,6 @@ Test :: struct {
 
 Test_Stack :: Stack(Test)
 
-test :: proc() {
-	stack: Stack(int)
-	stack_push(&stack, 3, context.allocator)
-	stack_pop(&stack)
-	stack_top(&stack)
-}
-
 Stack_Node :: struct($T: typeid) {
 	next, prev: ^Stack_Node(T),
 	value:      T,
@@ -83,9 +78,9 @@ Stack :: struct($T: typeid) {
 	auto_pop: bool,
 }
 
-stack_init :: proc(s: ^Stack($T), nil_value: T, allocator: runtime.Allocator) {
+stack_init :: proc(s: ^Stack($T), nil_value: T) {
 	s^ = {}
-	stack_push(s, nil_value, allocator)
+	stack_push(s, nil_value)
 	s.nil_node = s.base
 	assert(s.nil_node != nil)
 }
@@ -97,19 +92,19 @@ stack_auto_pop :: proc(s: ^Stack($T)) {
 	}
 }
 
-stack_set_next :: proc(s: ^Stack($T), value: T, allocator: runtime.Allocator) {
-	stack_push(s, value, allocator)
+stack_set_next :: proc(s: ^Stack($T), value: T) {
+	stack_push(s, value)
 	s.auto_pop = true
 }
 
-stack_push :: proc(s: ^Stack($T), value: T, allocator: runtime.Allocator) {
+stack_push :: proc(s: ^Stack($T), value: T) {
 	node: ^Stack_Node(T)
 
 	if s.free != nil {
 		node   = s.free
 		s.free = node.next
 	} else {
-		node = new(Stack_Node(T), allocator)
+		node = B.arena_new(build_arena(), Stack_Node(T))
 	}
 
 	node.value = value
