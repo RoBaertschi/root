@@ -7,7 +7,7 @@ button :: proc(name: string) -> Signal {
 	semantic_width_set_next(text_content(1))
 	semantic_height_set_next(text_content(1))
 	button := box_make(
-		{ .Draw_Background, .Clickable, .Draw_Hover, .Draw_Active, .Draw_Text },
+		{ .Draw_Background, .Draw_Border, .Clickable, .Draw_Hover, .Draw_Active, .Draw_Text },
 		name,
 	)
 

@@ -82,7 +82,7 @@ main :: proc() {
 			UI.semantic_width_guard(UI.percent_of_parent(1, 1))
 			UI.semantic_height_guard(UI.percent_of_parent(1, 1))
 			UI.parent_guard(UI.box_make({}, ""))
-			UI.semantic_height_guard(UI.pixels(50, 1))
+			UI.semantic_height_guard(UI.children_sum(1))
 			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
 
 			title_bar := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")

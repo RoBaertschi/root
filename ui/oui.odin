@@ -8,6 +8,7 @@ import "core:math"
 import "core:strings"
 import "base:runtime"
 import "core:mem/virtual"
+import "core:hash/xxhash"
 import "core:container/xar"
 
 import W "../window"
@@ -22,7 +23,7 @@ Arena :: virtual.Arena
 Rect  :: B.Rect(f32)
 Color :: R.Color
 
-NULL_KEY :: ""
+NULL_KEY :: Box_Key(0)
 
 Mouse_Button :: enum {
 	Left,
@@ -37,8 +38,8 @@ State :: struct {
 	root:    ^Box,
 	current: ^Box,
 
-	mouse_button_active: [Mouse_Button]string,
-	mouse_hover:         string,
+	mouse_button_active: [Mouse_Button]Box_Key,
+	mouse_hover:         Box_Key,
 
 	current_frame: u64,
 
@@ -46,11 +47,9 @@ State :: struct {
 
 	boxes:    xar.Array(Box, 8),
 	free_box: ^Box,   // free list of unused boxes
+	box_map:  []^Box,
 
 	//-stuff allocated in `perm_arena`
-
-	curr_interned_strings: map[string]^Box,
-	prev_interned_strings: map[string]^Box,
 
 	stacks: Stacks,
 
@@ -62,6 +61,9 @@ State :: struct {
 
 	//-external stuff
 }
+
+@private
+state: ^State
 
 build_arena :: proc() -> ^Arena {
 	return &state.arenas[state.current_frame % 2]
@@ -87,6 +89,9 @@ init :: proc() {
 	}
 
 	xar.init(&state.boxes, perm_allocator())
+
+	INITIAL_BOX_MAP_SIZE :: runtime.Kilobyte * 4
+	state.box_map = B.arena_make(perm_arena(), []^Box, INITIAL_BOX_MAP_SIZE)
 }
 
 fini :: proc() {
@@ -101,6 +106,38 @@ fini :: proc() {
 	virtual.arena_destroy(&local)
 
 	state = nil
+}
+
+Box_Iterator :: struct {
+	bucket: int,
+	box:    ^Box,
+}
+
+box_iterator_make :: proc() -> Box_Iterator {
+	return {
+		bucket = 0,
+		box    = nil,
+	}
+}
+
+box_iterate :: proc(it: ^Box_Iterator) -> (b: ^Box, ok: bool) {
+	if it.box != nil {
+		it.box = it.box.hash_next
+	}
+
+	for it.box == nil {
+		it.bucket += 1
+
+		if it.bucket >= len(state.box_map) {
+			return
+		}
+
+		it.box = state.box_map[it.bucket]
+	}
+
+	b  = it.box
+	ok = true
+	return
 }
 
 push_parent :: proc(b: ^Box) {
@@ -181,15 +218,8 @@ Begin_Description :: struct {
 }
 
 begin :: proc(desc: Begin_Description) {
-	temp_interned_strings       := state.curr_interned_strings
-	state.curr_interned_strings  = state.prev_interned_strings
-	state.prev_interned_strings  = temp_interned_strings
-
 	state.current_frame += 1
 	virtual.arena_free_all(build_arena())
-
-	delete(state.curr_interned_strings)
-	state.curr_interned_strings = make(map[string]^Box, allocator = build_allocator())
 
 	state.root, state.current = nil, nil
 
@@ -365,7 +395,8 @@ end :: proc() {
 
 	animate :: proc() {
 		transition := math.pow(f32(2), -40 * state.delta_time)
-		for key, b in state.curr_interned_strings {
+		for it := box_iterator_make(); b in box_iterate(&it) {
+			key        := b.key
 			is_hovered := state.mouse_hover == key
 			is_active  := false
 
@@ -383,30 +414,28 @@ end :: proc() {
 
 	animate()
 
+
 	// Ensure to use valid keys
 	for &mb in state.mouse_button_active {
-		if mb in state.curr_interned_strings {
-			b  := state.curr_interned_strings[mb]
-			mb  = b.key
-		} else {
-			mb = ""
+		if b, ok := box_find(mb); !ok {
+			mb = NULL_KEY
 		}
 	}
 
-	state.mouse_hover = ""
+	state.mouse_hover = NULL_KEY
 
 	// Free unused boxes
 
-	for it := xar.iterator(&state.boxes); w in xar.iterate_by_ptr(&it) {
-		if ._Free in w.flags {
+	for it := box_iterator_make(); b in box_iterate(&it) {
+		if ._Free in b.flags {
 			continue
 		}
 
-		if w.framed == state.current_frame {
+		if b.framed == state.current_frame {
 			continue
 		}
 
-		box_free(w)
+		box_free(b)
 	}
 }
 
@@ -467,10 +496,13 @@ Box_Flag :: enum {
 	// Layout
 	Overflow_X,
 	Overflow_Y,
+	Floating_X,
+	Floating_Y,
 
 	// Drawing
 	Draw_Clip, // WARN: The box has to be retained across frames for clipping to work correctly
 	Draw_Background,
+	Draw_Border,
 	Draw_Hover,
 	Draw_Active,
 	Draw_Text,
@@ -485,14 +517,18 @@ Box_Flag :: enum {
 Box_Flags :: bit_set[Box_Flag]
 
 Box_Attachment_Text :: struct {
-	run:     ^F.Run,
-	color:   Color,
-	content: string,
+	run:       ^F.Run,
+	color:     Color,
+	font_size: u16,
+	font:      F.ID,
+	content:   string,
 	// TODO(robin): text size
 }
 
 Box_Attachment_Rect :: struct {
+	border_color:     Color,
 	background_color: Color,
+	border_thickness: f32,
 	corner_radius:    f32,
 	// TODO(robin): rounded corners, borders
 }
@@ -504,12 +540,17 @@ Box_Attachment_Draw :: struct {
 	user_data: rawptr,
 }
 
+Box_Key :: distinct u64
+
 Box :: struct {
 	first, last: ^Box, // children
 	next,  prev: ^Box, // siblings
 	parent:      ^Box,
 
-	key:    string,
+	hash_next: ^Box,
+	hash_prev: ^^Box, // Points to the prev next pointer
+
+	key:    Box_Key,
 	framed: u64,
 
 	flags:             Box_Flags,
@@ -534,8 +575,30 @@ Box :: struct {
 	//-persistent data
 }
 
-@private
-state: ^State
+box_key_hashable_from_string :: proc(s: string) -> string {
+	HASH_ONLY_DELIMITER :: "###"
+
+	pos := strings.index(s, HASH_ONLY_DELIMITER)
+	if 0 > pos {
+		return s
+	}
+
+	return s[pos+len(HASH_ONLY_DELIMITER):]
+}
+
+box_key_from_string :: proc(s: string) -> Box_Key {
+	hashable := box_key_hashable_from_string(s)
+
+	if hashable == "" {
+		return NULL_KEY
+	}
+
+	hash := xxhash.XXH64(transmute([]byte)hashable)
+	if hash == 0 {
+		hash = 1 // don't allow a hash of 0 to be generated
+	}
+	return Box_Key(hash)
+}
 
 insert_child_box :: proc(b: ^Box) {
 	// Reset all tree data
@@ -565,45 +628,16 @@ insert_child_box :: proc(b: ^Box) {
 	}
 }
 
-box_intern_key :: proc(b: ^Box) {
-	if b.key == NULL_KEY {
-		b.key = NULL_KEY // Make sure to use the static string and not the potentially user allocated one
-		return
-	}
-
-	if interned_w, w_found := state.curr_interned_strings[b.key]; w_found {
-		if interned_w == nil {
-			state.curr_interned_strings[b.key] = b
-			return
-		}
-
-		if interned_w != b {
-			// We have a problem
-			// TODO(robin): what to do on collision
-			panic("duplicate box key")
-		}
-
-		// already properly interned
-		return
-	}
-
-	interned_string                              := strings.clone(b.key, build_allocator())
-	state.curr_interned_strings[interned_string]  = b
-	b.key                                         = interned_string
-}
-
 box_mark_used :: proc(b: ^Box) {
 	b.framed = state.current_frame
 }
 
 box_new :: proc() -> ^Box {
-	if w := state.free_box; w != nil {
-		state.free_box = w.next
-		ensure(._Free in w.flags)
-		w^ = {
-			framed = state.current_frame
-		}
-		return w
+	if b := state.free_box; b != nil {
+		state.free_box = b.next
+		ensure(._Free in b.flags)
+		b^ = {}
+		return b
 	}
 
 	w, _ := xar.append_and_get_ptr(&state.boxes, Box{})
@@ -611,6 +645,14 @@ box_new :: proc() -> ^Box {
 }
 
 box_free :: proc(b: ^Box) {
+	if b.hash_prev != nil {
+		b.hash_prev^ = b.next
+
+		if b.next != nil {
+			b.next.hash_prev = b.hash_prev
+		}
+	}
+
 	// NOTE: Keys are recycled automatically
 	b^ = {
 		next  = state.free_box,
@@ -618,6 +660,48 @@ box_free :: proc(b: ^Box) {
 	}
 
 	state.free_box = b
+}
+
+box_find :: proc(key: Box_Key) -> (b: ^Box, ok: bool) {
+	b = state.box_map[key % Box_Key(len(state.box_map))]
+
+	for b != nil {
+		if b.key == key {
+			ok = true
+			return
+		}
+
+		b = b.hash_next
+	}
+
+	return
+}
+
+box_from_key :: proc(key: Box_Key) -> ^Box {
+	if key == NULL_KEY {
+		box := box_new()
+		return box
+	}
+
+	bucket := &state.box_map[key % Box_Key(len(state.box_map))]
+
+	for {
+		if bucket^ == nil {
+			// allocate
+			box           := box_new()
+			bucket^        = box
+			box.hash_prev  = bucket
+			box.key        = key
+
+			return box
+		}
+
+		if bucket^.key == key {
+			return bucket^
+		}
+
+		bucket = &bucket^.hash_next
+	}
 }
 
 box_attach_text :: proc(b: ^Box, text: string) {
@@ -628,9 +712,11 @@ box_attach_text :: proc(b: ^Box, text: string) {
 		b.att_text = B.arena_new(build_arena(), Box_Attachment_Text)
 	}
 
-	b.att_text.content = cloned_text
-	b.att_text.run     = F.get_run(0, 24, text)
-	b.att_text.color   = text_color_top()
+	b.att_text.content   = cloned_text
+	b.att_text.font_size = font_size_top()
+	b.att_text.font      = font_top()
+	b.att_text.run       = F.get_run(b.att_text.font, b.att_text.font_size, text)
+	b.att_text.color     = text_color_top()
 }
 
 box_attach_rect :: proc(b: ^Box) {
@@ -638,7 +724,9 @@ box_attach_rect :: proc(b: ^Box) {
 		b.att_rect = B.arena_new(build_arena(), Box_Attachment_Rect)
 	}
 
+	b.att_rect.border_color     = border_color_top()
 	b.att_rect.background_color = background_color_top()
+	b.att_rect.border_thickness = border_thickness_top()
 	b.att_rect.corner_radius    = corner_radius_top()
 }
 
@@ -660,25 +748,17 @@ WARN: Key collisions currently result in an `panic()` so be careful.
 
 NOTE: `key` only needs to be valid for this function call
 */
-box_make :: proc(flags: Box_Flags, key: string) -> (b: ^Box) {
+box_make :: proc(flags: Box_Flags, s: string) -> (b: ^Box) {
 	ensure(._Free not_in flags)
 
-	_box_get_cached :: proc(key: string) -> (b: ^Box, ok: bool) {
-		b = state.prev_interned_strings[key] or_return
-		ensure(._Free not_in b.flags)
-		ok = true
-		return
-	}
+	key := box_key_from_string(s)
+	b    = box_from_key(key)
 
-	// NOTE(robin): why not zero? -> The permanent data must be retained, so we don't zero the full box
-	b       = _box_get_cached(key) or_else box_new()
 	b.flags = flags
-	b.key   = key
 
 	b.att_rect = nil
 	b.att_text = nil
 
-	box_intern_key(b)
 	box_mark_used(b)
 
 	if .Draw_Background in flags {
@@ -686,13 +766,21 @@ box_make :: proc(flags: Box_Flags, key: string) -> (b: ^Box) {
 	}
 
 	if .Draw_Text in flags {
-		box_attach_text(b, key)
+		DISPLAYABLE :: "##"
+		display_str := s
+		if idx := strings.index(s, DISPLAYABLE); idx != -1 {
+			display_str = display_str[:idx]
+		}
+
+		box_attach_text(b, display_str)
 	}
 
 	insert_child_box(b)
 
 	b.semantic_size[.X] = semantic_width_top()
 	b.semantic_size[.Y] = semantic_height_top()
+	b.computed_rel_position[.X] = fixed_x_top()
+	b.computed_rel_position[.Y] = fixed_y_top()
 	b.child_layout_axis = child_layout_axis_top()
 
 	auto_pop_stacks()

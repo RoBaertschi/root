@@ -18,11 +18,17 @@ STACKS :: [?]Stack{
 
 	// Layout
 	{"child_layout_axis", "Axis", "Axis.X"},
+	{"fixed_x",           "f32", "0"},
+	{"fixed_y",           "f32", "0"},
 
 	// Styles
-	{"text_color", "Color", "Color{0, 0, 0, 1}"},
+	{"text_color",       "Color", "Color{0, 0, 0, 1}"},
+	{"border_color",     "Color", "Color{1, 1, 1, 1}"},
 	{"background_color", "Color", "Color{1, 1, 1, 1}"},
-	{"corner_radius", "f32", "0"},
+	{"border_thickness", "f32",   "1"},
+	{"corner_radius",    "f32",   "0"},
+	{"font_size",        "u16",   "16"},
+	{"font",             "F.ID",  "F.DEFAULT_ID"},
 }
 
 main :: proc() {
@@ -34,7 +40,7 @@ main :: proc() {
 
 	w := os.to_writer(f)
 
-	io.write_string(w, "package oui\n\nimport \"base:runtime\"\n\n")
+	io.write_string(w, "package oui\n\nimport \"base:runtime\"\nimport F \"../font\"\n\n")
 
 	// Stacks struct
 	io.write_string(w, "Stacks :: struct {\n")
@@ -47,7 +53,7 @@ main :: proc() {
 
 	// auto_pop_stacks
 	io.write_string(w, "auto_pop_stacks :: proc() {\n")
-	
+
 	for stack in STACKS {
 		fmt.wprintf(w, "\tstack_auto_pop(&state.stacks.%s)\n", stack.name)
 	}
@@ -57,7 +63,7 @@ main :: proc() {
 	// init_stacks
 
 	io.write_string(w, "init_stacks :: proc() {\n")
-	
+
 	for stack in STACKS {
 		fmt.wprintf(w, "\tstack_init(&state.stacks.%s, %s)\n", stack.name, stack.nil_)
 	}

@@ -105,7 +105,7 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 					.Released_Left + Signal_Flag(mouse_button),
 					.Clicked_Left  + Signal_Flag(mouse_button),
 				}
-				state.mouse_button_active[mouse_button] = ""
+				state.mouse_button_active[mouse_button] = NULL_KEY
 				consume = true
 			}
 
@@ -118,7 +118,7 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 		}
 	}
 
-	if rect_contains(clipped_rect, state.mouse_pos) && state.mouse_hover == "" {
+	if rect_contains(clipped_rect, state.mouse_pos) && state.mouse_hover == NULL_KEY {
 		s.flags += {.Hovering}
 		is_active := false
 
@@ -133,7 +133,7 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 			state.mouse_hover = b.key
 		}
 	} else if b.key == state.mouse_hover {
-		state.mouse_hover = ""
+		state.mouse_hover = NULL_KEY
 	}
 
 	if .Clickable in b.flags {

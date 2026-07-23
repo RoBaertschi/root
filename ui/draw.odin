@@ -107,6 +107,28 @@ render :: proc(debug := false) {
 			// debug_rect.border_thickness = 2
 		}
 
+		if .Draw_Border in b.flags {
+			att := b.att_rect
+
+			border_rect := B.rect_padding(b.rect, 1)
+			r := R.rect(
+				r     = border_rect,
+				color = att.border_color,
+			)
+			r.corner_radius    = att.corner_radius
+			r.border_thickness = att.border_thickness
+			r.edge_softness    = 1
+			if .Draw_Hover in b.flags {
+				r := R.rect(
+					r     = border_rect,
+					color = { 1, 1, 1, 1 * b.hovered_anim * att.border_color.a },
+				)
+				r.corner_radius    = att.corner_radius
+				r.border_thickness = 2
+				r.edge_softness    = 1
+			}
+		}
+
 		if .Draw_Custom in b.flags {
 			b.att_draw.procedure(b)
 		}

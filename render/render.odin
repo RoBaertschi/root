@@ -193,7 +193,7 @@ end_frame :: proc() {
 		batch := batch_node.batch
 		count := batch.end - batch.start
 
-		clip := top_clip()
+		clip := batch.data.clip
 		gl.Scissor(**linalg.array_cast(clip.pos, i32), **linalg.array_cast(clip.size, i32))
 
 		texture := B.hm_get(&state.textures, batch.data.texture) or_else B.hm_get(&state.textures, NIL_TEXTURE)

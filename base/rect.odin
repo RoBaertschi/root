@@ -37,3 +37,10 @@ rect_intersection :: proc(a, b: Rect($T)) -> (rect: Rect(T)) {
 
 	return
 }
+
+rect_padding :: proc(rect: Rect($T), padding: T) -> Rect(T) {
+	return {
+		pos  = rect.pos  - padding,
+		size = rect.size + padding,
+	}
+}
