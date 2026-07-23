@@ -106,6 +106,14 @@ main :: proc() {
 					}
 				}
 			}
+
+			UI.semantic_height_set_next(UI.pixels(200, 1))
+			UI.semantic_width_set_next(UI.pixels(200, 1))
+			UI.fixed_x_set_next(20)
+			UI.fixed_y_set_next(20)
+			floating := UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "floating")
+			UI.parent_guard(floating)
+			UI.label("floating text")
 		}
 		UI.end()
 

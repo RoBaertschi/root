@@ -274,6 +274,14 @@ end :: proc() {
 		return false
 	}
 
+	box_is_fixed_on_axis :: proc(b: ^Box, a: Axis) -> bool {
+		switch a {
+		case .X: return .Floating_X in b.flags
+		case .Y: return .Floating_Y in b.flags
+		}
+		return false
+	}
+
 	calculate_standalone_sizes :: proc(b: ^Box, a: Axis) {
 		size := b.semantic_size[a]
 
@@ -341,6 +349,10 @@ end :: proc() {
 
 			if 0 < violation && 0 < total_weight {
 				for child := b.first; child != nil; child = child.next {
+					if box_is_fixed_on_axis(child, a) {
+						continue
+					}
+
 					child_size             := child.semantic_size[a]
 					flexibility            := 1 - child_size.strictness
 					weight                 := child.computed_size[a] * flexibility
@@ -350,6 +362,10 @@ end :: proc() {
 			}
 		case .Max:
 			for child := b.first; child != nil; child = child.next {
+				if box_is_fixed_on_axis(child, a) {
+					continue
+				}
+
 				if child.computed_size[a] < b.computed_size[a] {
 					continue
 				}
@@ -366,7 +382,13 @@ end :: proc() {
 	}
 
 	calculate_relative_positions :: proc(b: ^Box, pos: [Axis]f32) {
-		b.computed_rel_position = pos
+		if .Floating_X not_in b.flags {
+			b.computed_rel_position[.X] = pos[.X]
+		}
+
+		if .Floating_Y not_in b.flags {
+			b.computed_rel_position[.Y] = pos[.Y]
+		}
 		b.rect = {
 			pos  = transmute([2]f32)pos,
 			size = transmute([2]f32)b.computed_size,
@@ -374,7 +396,7 @@ end :: proc() {
 
 		stack_direction := b.child_layout_axis
 
-		new_pos := pos
+		new_pos := b.computed_rel_position
 		for child := b.first; child != nil; child = child.next {
 			calculate_relative_positions(child, new_pos)
 
