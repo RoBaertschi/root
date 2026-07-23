@@ -71,13 +71,19 @@ Signal_Flag :: enum {
 	Released_Left,
 	Released_Right,
 	Released_Middle,
+
+	Dragging_Pick,
+	Dragging,
+	Dragging_Drop,
+
 	Hovering,
 }
 
 Signal_Flags :: bit_set[Signal_Flag]
 
 Signal :: struct {
-	flags: Signal_Flags,
+	flags:      Signal_Flags,
+	drag_delta: [2]f32,
 }
 
 signal_from_box :: proc(b: ^Box) -> (s: Signal) {
@@ -100,20 +106,40 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 
 		if is_mouse_event {
 			mouse_button := event_key_to_mouse_button(event.key)
-			if event.kind == .Released && state.mouse_button_active[mouse_button] == b.key {
-				s.flags += {
-					.Released_Left + Signal_Flag(mouse_button),
-					.Clicked_Left  + Signal_Flag(mouse_button),
+
+			#partial switch event.kind {
+			case .Pressed:
+				if is_mouse_inside_box && state.mouse_drag == NULL_KEY && .Clickable in b.flags {
+					if state.mouse_drag_start != state.mouse_pos {
+						state.mouse_drag = b.key
+						s.flags += {.Dragging_Pick}
+					}
+
+					s.flags                             += {.Pressed_Left + Signal_Flag(mouse_button)}
+					state.mouse_button_active[mouse_button]  = b.key
+
+					if state.mouse_drag == NULL_KEY {
+						state.mouse_drag_start = state.mouse_pos
+					}
+					consume = true
 				}
-				state.mouse_button_active[mouse_button] = NULL_KEY
-				consume = true
-			}
+			case .Released:
+				if state.mouse_drag == b.key {
+					log.info("dropped", b)
+					state.mouse_drag = NULL_KEY
+					s.flags         += {.Dragging_Drop}
+					consume 		 = true
+				}
 
-			if event.kind == .Pressed && is_mouse_inside_box && .Clickable in b.flags {
-				s.flags                             += {.Pressed_Left + Signal_Flag(mouse_button)}
-				state.mouse_button_active[mouse_button]  = b.key
+				if state.mouse_button_active[mouse_button] == b.key {
+					s.flags += {
+						.Released_Left + Signal_Flag(mouse_button),
+						.Clicked_Left  + Signal_Flag(mouse_button),
+					}
+					state.mouse_button_active[mouse_button] = NULL_KEY
 
-				consume = true
+					consume = true
+				}				
 			}
 		}
 	}
@@ -136,10 +162,15 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 		state.mouse_hover = NULL_KEY
 	}
 
+	if state.mouse_drag == b.key {
+		s.drag_delta = state.mouse_pos - state.mouse_drag_start
+		s.flags     += {.Dragging}		
+	}
+
 	if .Clickable in b.flags {
 		for key, mouse_button in state.mouse_button_active {
 			if key == b.key {
-				s.flags += {.Pressed_Left + Signal_Flag(mouse_button)}
+				s.flags  += {.Pressed_Left + Signal_Flag(mouse_button)}
 			}
 		}
 	}

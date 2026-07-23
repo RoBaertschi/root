@@ -12,7 +12,6 @@ The UI still needs a lot of work.
     - [x] Border
     - [x] Border Color
     - [x] Font
-            "working_dir": "$project_path"
     - [x] Font Size
 - [ ] Scrollable areas
 - [ ] Polish

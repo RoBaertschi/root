@@ -86,23 +86,25 @@ main :: proc() {
 			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
 
 			title_bar := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
-			UI.parent_guard(title_bar)
+			{
+				UI.parent_guard(title_bar)
 
-			if UI.center(.Y) {
-				UI.semantic_height_set_next(UI.children_sum(1))
-				if UI.stack(.X) {
-					UI.label("nyx")
+				if UI.center(.Y) {
+					UI.semantic_height_set_next(UI.children_sum(1))
+					if UI.stack(.X) {
+						UI.label("nyx")
 
-					UI.spacer(.X, UI.percent_of_parent(1, 0))
+						UI.spacer(.X, UI.percent_of_parent(1, 0))
 
-					if .Minimize_Supported in W.flags() && .Clicked_Left in UI.button("minimize").flags {
-						W.minimize()
-					}
-					if .Maximize_Supported in W.flags() && .Clicked_Left in UI.button("maximize").flags {
-						W.toggle_maximize()
-					}
-					if .Clicked_Left in UI.button("close").flags {
-						run = false
+						if .Minimize_Supported in W.flags() && .Clicked_Left in UI.button("minimize").flags {
+							W.minimize()
+						}
+						if .Maximize_Supported in W.flags() && .Clicked_Left in UI.button("maximize").flags {
+							W.toggle_maximize()
+						}
+						if .Clicked_Left in UI.button("close").flags {
+							run = false
+						}
 					}
 				}
 			}
@@ -111,9 +113,19 @@ main :: proc() {
 			UI.semantic_width_set_next(UI.pixels(200, 1))
 			UI.fixed_x_set_next(20)
 			UI.fixed_y_set_next(20)
-			floating := UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "floating")
+			UI.background_color_set_next({ 1, 0, 0, 1 })
+			floating        := UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background, .Draw_Hover, .Clickable }, "floating")
+			floating_signal := UI.signal_from_box(floating)
+			if .Dragging in floating_signal.flags || .Dragging_Pick in floating_signal.flags || .Dragging_Drop in floating_signal.flags {
+				log.info(floating_signal.flags)
+				UI.semantic_height_set_next(UI.pixels(50, 1))
+				UI.semantic_width_set_next(UI.pixels(50, 1))
+				UI.fixed_x_set_next(floating.rect.pos.x + floating_signal.drag_delta.x)
+				UI.fixed_y_set_next(floating.rect.pos.y + floating_signal.drag_delta.y)
+				UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "")
+			}
 			UI.parent_guard(floating)
-			UI.label("floating text")
+			UI.labelf("floating text %v: %v", floating.computed_rel_position, floating.rect)
 		}
 		UI.end()
 
@@ -201,7 +213,7 @@ main :: proc() {
 		// 	r.border_thickness = 2
 		// }
 
-		UI.render(false)
+		UI.render(true)
 
 		R.end_frame()
 		W.frame()

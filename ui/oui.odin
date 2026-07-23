@@ -32,14 +32,18 @@ Mouse_Button :: enum {
 }
 
 State :: struct {
-	perm_arena: Arena,
-	arenas:     [2]Arena,
+	perm_arena:      Arena,
+	drag_data_arena: Arena,
+	arenas:          [2]Arena,
 
 	root:    ^Box,
 	current: ^Box,
 
 	mouse_button_active: [Mouse_Button]Box_Key,
 	mouse_hover:         Box_Key,
+	mouse_drag:          Box_Key,
+	mouse_drag_data:     rawptr,
+	mouse_drag_start:    [2]f32,
 
 	current_frame: u64,
 
@@ -83,6 +87,8 @@ perm_allocator :: proc() -> runtime.Allocator {
 
 init :: proc() {
 	state, _ = virtual.arena_growing_bootstrap_new(State, "perm_arena")
+
+	_ = virtual.arena_init_static(&state.drag_data_arena)
 
 	for &arena in state.arenas {
 		_ = virtual.arena_init_growing(&arena)
@@ -254,11 +260,17 @@ end :: proc() {
 		switch mode {
 		case .Sum:
 			for child := b.first; child != nil; child = child.next {
+				if box_is_fixed_on_axis(child, a) {
+					continue
+				}
 				value += child.computed_size[a]
 			}
 
 		case .Max:
 			for child := b.first; child != nil; child = child.next {
+				if box_is_fixed_on_axis(child, a) {
+					continue
+				}
 				value = max(child.computed_size[a], value)
 			}
 		}
@@ -390,7 +402,7 @@ end :: proc() {
 			b.computed_rel_position[.Y] = pos[.Y]
 		}
 		b.rect = {
-			pos  = transmute([2]f32)pos,
+			pos  = transmute([2]f32)b.computed_rel_position,
 			size = transmute([2]f32)b.computed_size,
 		}
 
