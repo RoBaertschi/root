@@ -42,3 +42,19 @@ Currently works well enough.
 
 - [ ] Figure out why text unclear -> Font#1
 - [ ] Support multiple OpenGL contextes
+
+## General
+
+- [ ] Maybe figure out some sort of panel system.
+- [ ] Text buffer datastructure (Keywords: Piece Table, Piece Tree (see vscode), Ropes (probably not), Gap Buffer (probably not))
+- [ ] Improve styles
+- [ ] Figure out allocation story
+- [ ] Figure out the extension/plugins system (Keywords: out-of-process, shared memory, ring buffers)
+    - [ ] Maybe some metaprogramming could help when creating the API's
+    - [ ] Maybe also just in-process dynamic libraries
+    - [ ] WASM? Probably not, but would be easy to do better than Zed
+    - [ ] Scripting Language, probably not...
+        - [ ] Possibly Lua?
+        - [ ] Possibly JavaScript? (hell no)
+        - [ ] Possibly Python? (Nuh uh)
+        - [ ] Some functional language (((((not t)))))
