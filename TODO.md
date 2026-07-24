@@ -4,15 +4,17 @@
 
 The UI still needs a lot of work.
 
-- [x] Manual hash map: Move from map[string]... -> some custom implementation using a u64 as a key
+- [x] Manual hash map: Move from map\[string\]... -> some custom implementation using a u64 as a key
     - [x] Find a good hash function for small strings
     - [x] Support `##` and `###` in the strings provided for hashing.
-    - [x] Only have one hash map and use the `Box.last_frame` as the indicator for wether we should free it or not
+    - [x] Only have one hash map and use the `Box.framed` as the indicator for wether we should free it or not
 - [x] More rect settings
     - [x] Border
     - [x] Border Color
     - [x] Font
     - [x] Font Size
+    - [x] Text Align
+    - [x] Text Padding
 - [ ] Scrollable areas
 - [ ] Polish
 - [ ] More default widgets

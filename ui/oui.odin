@@ -301,8 +301,11 @@ end :: proc() {
 		case .Pixels:
 			b.computed_size[a] = size.value
 		case .Text_Content:
-			if b.att_text != nil {
-				b.computed_size[a] = b.att_text.run.layout[a]
+			assert(b.att_text != nil)
+			b.computed_size[a] = b.att_text.run.layout[a]
+
+			if a == .X {
+				b.computed_size[a] += b.att_text.text_padding * 2
 			}
 		}
 
@@ -550,12 +553,20 @@ Box_Flag :: enum {
 
 Box_Flags :: bit_set[Box_Flag]
 
+Text_Alignment :: enum {
+	Left,
+	Center,
+	Right,
+}
+
 Box_Attachment_Text :: struct {
-	run:       ^F.Run,
-	color:     Color,
-	font_size: u16,
-	font:      F.ID,
-	content:   string,
+	run:            ^F.Run,
+	color:          Color,
+	font_size:      u16,
+	font:           F.ID,
+	content:        string,
+	text_alignment: Text_Alignment,
+	text_padding:   f32,
 	// TODO(robin): text size
 }
 
@@ -746,11 +757,13 @@ box_attach_text :: proc(b: ^Box, text: string) {
 		b.att_text = B.arena_new(build_arena(), Box_Attachment_Text)
 	}
 
-	b.att_text.content   = cloned_text
-	b.att_text.font_size = font_size_top()
-	b.att_text.font      = font_top()
-	b.att_text.run       = F.get_run(b.att_text.font, b.att_text.font_size, text)
-	b.att_text.color     = text_color_top()
+	b.att_text.content        = cloned_text
+	b.att_text.font_size      = font_size_top()
+	b.att_text.font           = font_top()
+	b.att_text.run            = F.get_run(b.att_text.font, b.att_text.font_size, text)
+	b.att_text.color          = text_color_top()
+	b.att_text.text_alignment = text_alignment_top()
+	b.att_text.text_padding   = text_padding_top()
 }
 
 box_attach_rect :: proc(b: ^Box) {

@@ -16,6 +16,8 @@ Stacks :: struct {
 	corner_radius: Stack(f32),
 	font_size: Stack(u16),
 	font: Stack(F.ID),
+	text_padding: Stack(f32),
+	text_alignment: Stack(Text_Alignment),
 }
 
 auto_pop_stacks :: proc() {
@@ -31,6 +33,8 @@ auto_pop_stacks :: proc() {
 	stack_auto_pop(&state.stacks.corner_radius)
 	stack_auto_pop(&state.stacks.font_size)
 	stack_auto_pop(&state.stacks.font)
+	stack_auto_pop(&state.stacks.text_padding)
+	stack_auto_pop(&state.stacks.text_alignment)
 }
 
 init_stacks :: proc() {
@@ -46,6 +50,8 @@ init_stacks :: proc() {
 	stack_init(&state.stacks.corner_radius, 0)
 	stack_init(&state.stacks.font_size, 16)
 	stack_init(&state.stacks.font, F.DEFAULT_ID)
+	stack_init(&state.stacks.text_padding, 0)
+	stack_init(&state.stacks.text_alignment, Text_Alignment.Left)
 }
 
 //+semantic_width
@@ -203,4 +209,30 @@ _font_guard_end :: proc(v: F.ID, loc: runtime.Source_Code_Location) {
 	assert(old == v, loc = loc)
 }
 //-font
+
+//+text_padding
+text_padding_set_next :: proc(v: f32) { stack_set_next(&state.stacks.text_padding, v) }
+text_padding_push :: proc(v: f32) { stack_push(&state.stacks.text_padding, v) }
+text_padding_pop :: proc() -> f32 { return stack_pop(&state.stacks.text_padding) }
+text_padding_top :: proc() -> f32 { return stack_top(&state.stacks.text_padding) }
+@(deferred_in=_text_padding_guard_end)
+text_padding_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.text_padding, v) }
+_text_padding_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
+	old := text_padding_pop()
+	assert(old == v, loc = loc)
+}
+//-text_padding
+
+//+text_alignment
+text_alignment_set_next :: proc(v: Text_Alignment) { stack_set_next(&state.stacks.text_alignment, v) }
+text_alignment_push :: proc(v: Text_Alignment) { stack_push(&state.stacks.text_alignment, v) }
+text_alignment_pop :: proc() -> Text_Alignment { return stack_pop(&state.stacks.text_alignment) }
+text_alignment_top :: proc() -> Text_Alignment { return stack_top(&state.stacks.text_alignment) }
+@(deferred_in=_text_alignment_guard_end)
+text_alignment_guard :: proc(v: Text_Alignment, loc := #caller_location) { stack_push(&state.stacks.text_alignment, v) }
+_text_alignment_guard_end :: proc(v: Text_Alignment, loc: runtime.Source_Code_Location) {
+	old := text_alignment_pop()
+	assert(old == v, loc = loc)
+}
+//-text_alignment
 

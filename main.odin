@@ -1,8 +1,6 @@
 package root
 
 import "core:time"
-import "core:fmt"
-import "core:math/linalg"
 import "core:os"
 import "core:log"
 
@@ -11,6 +9,8 @@ import W "window"
 import R "render"
 import B "base"
 import UI "ui"
+
+title_bar_rect: B.Rect(f32)
 
 main :: proc() {
 	temp := B.TEMP_ALLOCATOR_GUARD()
@@ -54,6 +54,14 @@ main :: proc() {
 	UI.init()
 	defer UI.fini()
 
+	W.set_decoration_hit_callback(proc(pos: [2]f32) -> W.Decoration_Hit_Result {
+		if B.rect_contains(title_bar_rect, pos) {
+			return .Draggable
+		}
+
+		return .None
+	})
+
 	last_time: time.Tick
 
 	run := true
@@ -85,7 +93,8 @@ main :: proc() {
 			UI.semantic_height_guard(UI.children_sum(1))
 			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
 
-			title_bar := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
+			title_bar      := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
+			title_bar_rect  = title_bar.rect
 			{
 				UI.parent_guard(title_bar)
 
@@ -93,6 +102,23 @@ main :: proc() {
 					UI.semantic_height_set_next(UI.children_sum(1))
 					if UI.stack(.X) {
 						UI.label("nyx")
+
+						UI.semantic_width_set_next(UI.pixels(120, 1))
+						UI.semantic_height_set_next(UI.text_content(1))
+						UI.text_padding_set_next(10)
+						UI.box_make({ .Draw_Text }, " la+pad")
+
+						UI.semantic_width_set_next(UI.pixels(120, 1))
+						UI.semantic_height_set_next(UI.text_content(1))
+						UI.text_alignment_set_next(.Center)
+						UI.text_padding_set_next(10)
+						UI.box_make({ .Draw_Text }, " ca+pad ")
+
+						UI.semantic_width_set_next(UI.pixels(120, 1))
+						UI.semantic_height_set_next(UI.text_content(1))
+						UI.text_alignment_set_next(.Right)
+						UI.text_padding_set_next(10)
+						UI.box_make({ .Draw_Text }, "ra+pad ")
 
 						UI.spacer(.X, UI.percent_of_parent(1, 0))
 

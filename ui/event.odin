@@ -125,10 +125,10 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 				}
 			case .Released:
 				if state.mouse_drag == b.key {
-					log.info("dropped", b)
 					state.mouse_drag = NULL_KEY
 					s.flags         += {.Dragging_Drop}
-					consume 		 = true
+					s.drag_delta     = state.mouse_drag_start - state.mouse_pos
+					consume          = true
 				}
 
 				if state.mouse_button_active[mouse_button] == b.key {
@@ -139,7 +139,7 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 					state.mouse_button_active[mouse_button] = NULL_KEY
 
 					consume = true
-				}				
+				}
 			}
 		}
 	}

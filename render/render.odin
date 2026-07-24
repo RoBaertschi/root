@@ -194,7 +194,10 @@ end_frame :: proc() {
 		count := batch.end - batch.start
 
 		clip := batch.data.clip
-		gl.Scissor(**linalg.array_cast(clip.pos, i32), **linalg.array_cast(clip.size, i32))
+		gl.Scissor(
+			i32(clip.pos.x), i32(state.window_size.y - clip.pos.y - clip.size.y),
+			**linalg.array_cast(clip.size, i32),
+		)
 
 		texture := B.hm_get(&state.textures, batch.data.texture) or_else B.hm_get(&state.textures, NIL_TEXTURE)
 
@@ -260,25 +263,6 @@ texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, texture.id)
 	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
-}
-
-// ptr valid for the whole frame, this is for immediate mode
-rect :: proc(r: B.Rect(f32) = {}, color: Color = {}, texture := NIL_TEXTURE, tex_r: B.Rect(f32) = {}) -> ^Rect {
-	rect := Rect {
-		dst_00 = r.pos,
-		dst_11 = r.pos + r.size,
-		src_00 = tex_r.pos,
-		src_11 = tex_r.pos + tex_r.size,
-		color  = { ._00 = color, ._10 = color, ._01 = color, ._11 = color },
-	}
-
-	return batch_push_rect(
-		rect,
-		{
-			texture = texture,
-			clip    = top_clip(),
-		},
-	)
 }
 
 top_clip :: proc() -> B.Rect(int) {

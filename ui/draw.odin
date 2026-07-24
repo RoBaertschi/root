@@ -3,7 +3,7 @@ package oui
 import "core:fmt"
 import "core:math/rand"
 import B "../base"
-import R "../render"
+import D "../draw"
 import F "../font"
 
 @(private="file")
@@ -32,21 +32,13 @@ render :: proc(debug := false) {
 	local := r
 	context.random_generator = rand.pcg_random_generator(&local)
 
-	draw_text :: proc(text: string, pos: [2]f32) {
-		r := F.get_run(0, 8, text)
-
-		for it := F.glyph_list_iterator(r.glyphs); rglyph in F.glyph_list_iterate(&it) {
-			_ = R.rect(
-				r       = { pos = rglyph.pos + pos, size = B.array_cast(rglyph.glyph.used_rect.size, f32) },
-				color   = { 1, 1, 1, 1 },
-				tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
-				texture = rglyph.glyph.atlas.texture,
-			)
-		}
+	draw_text :: proc(pos: [2]f32, s: string) {
+		run := F.get_run(0, 8, s)
+		D.text_run(run, { pos = pos, size = run.layout }, { 1, 1, 1, 1 })
 	}
 
 	draw_textf :: proc(pos: [2]f32, format: string, args: ..any) {
-		draw_text(fmt.aprintf(format, ..args, allocator = build_allocator()), pos)
+		draw_text(pos, fmt.aprintf(format, ..args, allocator = build_allocator()))
 	}
 
 	render_box :: proc(b: ^Box, debug: bool) {
@@ -55,14 +47,14 @@ render :: proc(debug := false) {
 
 			background_color := att.background_color
 
-			rect               := R.rect(b.rect, background_color)
+			rect               := D.rect_with_color(b.rect, background_color)
 			rect.corner_radius  = att.corner_radius
 
 			if .Draw_Hover in b.flags {
 				effective_hover := b.hovered_anim * (1 - b.active_anim)
 				hover_alpha     := 0.2 * effective_hover * background_color.a
 
-				hover_rect               := R.rect(b.rect)
+				hover_rect               := D.rect(b.rect)
 				hover_rect.corner_radius  = att.corner_radius
 				hover_rect.color = {
 					._00 = { 1, 1, 1, hover_alpha },
@@ -75,7 +67,7 @@ render :: proc(debug := false) {
 			if .Draw_Active in b.flags {
 				active_alpha := 0.5 * b.active_anim * background_color.a
 
-				active_rect               := R.rect(b.rect)
+				active_rect               := D.rect(b.rect)
 				active_rect.corner_radius  = att.corner_radius
 				active_rect.color = {
 					._00 = { 1, 1, 1, active_alpha },
@@ -90,14 +82,24 @@ render :: proc(debug := false) {
 			text  := b.att_text
 			color := text.color
 
-			for it := F.glyph_list_iterator(text.run.glyphs); rglyph in F.glyph_list_iterate(&it) {
-				_ = R.rect(
-					r       = { pos = rglyph.pos + b.rect.pos, size = B.array_cast(rglyph.glyph.used_rect.size, f32) },
-					color   = color,
-					tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
-					texture = rglyph.glyph.atlas.texture,
-				)
+			text_rect := B.Rect(f32){ b.rect.pos, text.run.layout }
+
+			switch text.text_alignment {
+			case .Left:
+				text_rect.pos.x += text.text_padding
+			case .Center:
+				text_rect.pos.x += (b.rect.size.x - text_rect.size.x) / 2
+				text_rect.pos.x  = B.rect_clamp_x_pos(b.rect, text_rect.pos.x)
+			case .Right:
+				text_rect.pos.x += b.rect.size.x - text_rect.size.x - text.text_padding
+				text_rect.pos.x  = B.rect_clamp_x_pos(b.rect, text_rect.pos.x)
 			}
+
+			D.text_run(
+				text.run,
+				text_rect,
+				text.color,
+			)
 
 			// debug_rect := R.rect(
 			// 	r = { pos = text.run.visible.pos + b.rect.pos, size = text.run.visible.size },
@@ -111,17 +113,17 @@ render :: proc(debug := false) {
 			att := b.att_rect
 
 			border_rect := B.rect_padding(b.rect, 1)
-			r := R.rect(
-				r     = border_rect,
-				color = att.border_color,
+			r := D.rect_with_color(
+				border_rect,
+				att.border_color,
 			)
 			r.corner_radius    = att.corner_radius
 			r.border_thickness = att.border_thickness
 			r.edge_softness    = 1
 			if .Draw_Hover in b.flags {
-				r := R.rect(
-					r     = border_rect,
-					color = { 1, 1, 1, 1 * b.hovered_anim * att.border_color.a },
+				r := D.rect_with_color(
+					border_rect,
+					{ 1, 1, 1, 1 * b.hovered_anim * att.border_color.a },
 				)
 				r.corner_radius    = att.corner_radius
 				r.border_thickness = 2
@@ -134,7 +136,7 @@ render :: proc(debug := false) {
 		}
 
 		if debug {
-			R.rect(
+			D.rect_with_color(
 				b.rect,
 				{
 					rand.float32(),
@@ -152,10 +154,10 @@ render :: proc(debug := false) {
 		}
 
 		if .Draw_Clip in b.flags {
-			R.push_clip(B.rect_cast(b.rect, int))
+			D.push_clip(B.rect_cast(b.rect, int))
 		}
 		defer if .Draw_Clip in b.flags {
-			R.pop_clip()
+			D.pop_clip()
 		}
 
 		for child := b.first; child != nil; child = child.next {

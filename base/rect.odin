@@ -2,6 +2,8 @@ package root_base
 
 import "base:intrinsics"
 
+import "core:math"
+
 Rect :: struct($T: typeid) where intrinsics.type_is_comparable(T) {
 	pos:  [2]T,
 	size: [2]T,
@@ -42,5 +44,22 @@ rect_padding :: proc(rect: Rect($T), padding: T) -> Rect(T) {
 	return {
 		pos  = rect.pos  - padding,
 		size = rect.size + padding,
+	}
+}
+
+rect_clamp_x_pos :: proc(rect: Rect($T), pos: T) -> T {
+	return clamp(pos, rect.pos.x, rect.pos.x + rect.size.x)
+}
+
+rect_f32_to_int :: proc(rect: Rect(f32)) -> Rect(int) {
+	return {
+		pos = {
+			int(math.floor(rect.pos.x)),
+			int(math.floor(rect.pos.y)),
+		},
+		size = {
+			int(math.ceil(rect.size.x)),
+			int(math.ceil(rect.size.y)),
+		},
 	}
 }

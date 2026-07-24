@@ -22,13 +22,15 @@ STACKS :: [?]Stack{
 	{"fixed_y",           "f32", "0"},
 
 	// Styles
-	{"text_color",       "Color", "Color{0, 0, 0, 1}"},
-	{"border_color",     "Color", "Color{1, 1, 1, 1}"},
-	{"background_color", "Color", "Color{1, 1, 1, 1}"},
-	{"border_thickness", "f32",   "1"},
-	{"corner_radius",    "f32",   "0"},
-	{"font_size",        "u16",   "16"},
-	{"font",             "F.ID",  "F.DEFAULT_ID"},
+	{"text_color",       "Color",          "Color{0, 0, 0, 1}"},
+	{"border_color",     "Color",          "Color{1, 1, 1, 1}"},
+	{"background_color", "Color",          "Color{1, 1, 1, 1}"},
+	{"border_thickness", "f32",            "1"},
+	{"corner_radius",    "f32",            "0"},
+	{"font_size",        "u16",            "16"},
+	{"font",             "F.ID",           "F.DEFAULT_ID"},
+	{"text_padding",     "f32",            "0"},
+	{"text_alignment",   "Text_Alignment", "Text_Alignment.Left"},
 }
 
 main :: proc() {
