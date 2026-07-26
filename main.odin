@@ -239,7 +239,7 @@ main :: proc() {
 		// 	r.border_thickness = 2
 		// }
 
-		UI.render(true)
+		UI.render()
 
 		R.end_frame()
 		W.frame()
