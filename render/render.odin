@@ -181,6 +181,7 @@ end_frame :: proc() {
 	// General prep
 	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
 
+	gl.Scissor(0, 0, **B.array_cast(state.window_size, i32))
 	gl.ClearColor(1, 1, 1, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
