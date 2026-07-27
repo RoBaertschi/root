@@ -273,6 +273,7 @@ State :: struct {
 	arena:  virtual.Arena,
 	ctx:    runtime.Context,
 	window: list.List,
+	events: Event_List,
 	
 	_platform: _State_Platform,
 }
