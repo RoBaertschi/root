@@ -40,8 +40,7 @@ Wl_Button :: enum u32 {
 
 wl_pointer_listener := WL.pointer_listener{
 	enter = proc "c"(data: rawptr, pointer: ^WL.pointer, serial_: u32, surface: ^WL.surface, surface_x: WL.fixed_t, surface_y: WL.fixed_t) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
 
 		WL.pointer_set_cursor(pointer, serial_, p.cursor_surface, i32(p.cursor_image.hotspot_x), i32(p.cursor_image.hotspot_y))
@@ -55,13 +54,11 @@ wl_pointer_listener := WL.pointer_listener{
 	},
 	leave = proc "c"(data: rawptr, pointer: ^WL.pointer, serial_: u32, surface_: ^WL.surface) {},
 	motion = proc "c"(data: rawptr, pointer: ^WL.pointer, time: u32, surface_x: WL.fixed_t, surface_y: WL.fixed_t) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		p.pointer_pos = { WL.fixed_to_f32(surface_x), WL.fixed_to_f32(surface_y) }
 	},
 	button = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, serial: u32, time: u32, button_: u32, button_state_: u32) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
 		button_state := WL.pointer_button_state(button_state_)
 		button       := Wl_Button(button_)
@@ -79,7 +76,7 @@ wl_pointer_listener := WL.pointer_listener{
 			.pressed  = .Pressed,
 		}
 
-		context = s.ctx
+		context = state.ctx
 
 		// TODO(robin): implement hit testing
 		// if button_state == .pressed && s.decoration_hit_proc != nil {
@@ -114,7 +111,7 @@ wl_pointer_listener := WL.pointer_listener{
 		// }
 
 		event_list_push(
-			&s.events,
+			&state.events,
 			Event {
 				kind        = .Key,
 				pos         = p.pointer_pos,
@@ -407,15 +404,14 @@ wl_keyboard_listener := WL.keyboard_listener{
 	enter = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, surface_: ^WL.surface, keys_: WL.array) {},
 
 	leave = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial: u32, surface_: ^WL.surface) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
-		context = s.ctx
+		context = state.ctx
 
 		node := p.pressed_keys
 		for node != nil {
 			event_list_push(
-				&s.events,
+				&state.events,
 				Event {
 					kind        = .Key,
 					key         = node.key.key,
@@ -443,10 +439,9 @@ wl_keyboard_listener := WL.keyboard_listener{
 	},
 
 	keymap = proc "c"(data: rawptr, keyboard: ^WL.keyboard, format: WL.keyboard_keymap_format, fd: i32, size: u32) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
-		context = s.ctx
+		context = state.ctx
 
 		if format != .xkb_v1 {
 			log.errorf("unsupported wayland keyboard keymap format: %v", format)
@@ -472,10 +467,9 @@ wl_keyboard_listener := WL.keyboard_listener{
 	},
 
 	key = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial: u32, time_: u32, key: u32, key_state: WL.keyboard_key_state) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
-		context = s.ctx
+		context = state.ctx
 
 		keycode := XKB.keycode_t(key + 8)
 
@@ -501,8 +495,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 	},
 
 	modifiers = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, mods_depressed_: u32, mods_latched_: u32, mods_locked_: u32, group_: u32) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 		
 		XKB.state_update_mask(
 			p.xkb_state,
@@ -516,8 +509,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 	},
 
 	repeat_info = proc "c"(data: rawptr, keyboard: ^WL.keyboard, rate: i32, delay: i32) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 
 		p.keyboard_repeat_delay = delay
 		p.keyboard_repeat_rate  = rate
@@ -526,14 +518,13 @@ wl_keyboard_listener := WL.keyboard_listener{
 
 wl_seat_listener := WL.seat_listener{
 	capabilities = auto_cast proc "c"(data: rawptr, seat: ^WL.seat, capabilities: bit_set[Seat_Capability; i32]) {
-		s := cast(^State)data
-		p := &s._platform
+		p := &state._platform
 
 		p.seat_capabilities = capabilities
 
 		if .pointer in p.seat_capabilities {
 			p.pointer = WL.seat_get_pointer(seat)
-			WL.pointer_add_listener(p.pointer.?, &wl_pointer_listener, s)
+			WL.pointer_add_listener(p.pointer.?, &wl_pointer_listener, state)
 		} else if p.pointer != nil {
 			WL.pointer_release(p.pointer.?)
 			WL.pointer_destroy(p.pointer.?)
@@ -541,7 +532,7 @@ wl_seat_listener := WL.seat_listener{
 
 		if .keyboard in p.seat_capabilities {
 			p.keyboard = WL.seat_get_keyboard(seat)
-			WL.keyboard_add_listener(p.keyboard.?, &wl_keyboard_listener, s)
+			WL.keyboard_add_listener(p.keyboard.?, &wl_keyboard_listener, state)
 		} else if p.keyboard != nil {
 			WL.keyboard_release(p.keyboard.?)
 			WL.keyboard_destroy(p.keyboard.?)
@@ -634,20 +625,19 @@ _state_platform_init :: proc(s: ^State) -> (ok: bool) {
 			data: rawptr, registry: ^WL.registry, name: u32, interface_: cstring, version: u32,
 		) {
 			context = state.ctx
-			s := cast(^State)data
-			p := &s._platform
+			p := &state._platform
 
 			switch interface_ {
 			case WL.compositor_interface.name:
 				p.compositor = cast(^WL.compositor)WL.registry_bind(registry, name, &WL.compositor_interface, version)
 			case WL.seat_interface.name:
 				p.seat = cast(^WL.seat)WL.registry_bind(registry, name, &WL.seat_interface, 7)
-				WL.seat_add_listener(p.seat, &wl_seat_listener, s)
+				WL.seat_add_listener(p.seat, &wl_seat_listener, state)
 			case WL.shm_interface.name:
 				p.shm = cast(^WL.shm)WL.registry_bind(registry, name, &WL.shm_interface, 1)
 			case XDG.wm_base_interface.name:
 				p.xdg_wm_base = cast(^XDG.wm_base)WL.registry_bind(registry, name, &XDG.wm_base_interface, min(version, 5))
-				XDG.wm_base_add_listener(p.xdg_wm_base, &xdg_wm_base_listener, s)
+				XDG.wm_base_add_listener(p.xdg_wm_base, &xdg_wm_base_listener, state)
 			// case:
 			// 	log.debugf("unhandled global %v:%v@%v", interface_, version, name)
 			}
