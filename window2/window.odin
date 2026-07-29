@@ -160,6 +160,7 @@ Event :: struct {
 	size:        [2]int,
 	pos:         [2]f32,
 	key:         Event_Key,
+	window:      ^Window,
 	key_state:   Event_Key_State,
 	modifiers:   Event_Modifiers,
 	codepoint:   rune,
@@ -241,6 +242,8 @@ Window :: struct {
 	title: string,
 	size:  [2]int,
 
+	decoration_hit_proc: Decoration_Hit_Proc,
+
 	_platform: _Window_Platform,
 }
 
@@ -262,7 +265,19 @@ window_make :: proc(size: [2]int, title: string) -> (w: ^Window) {
 
 	_window_platform_init(w)
 
+	list.push_back(&state.windows, &w.node)
+
 	return
+}
+
+// Set current window to use for the OpenGL context
+set_current :: proc(w: ^Window) {
+	_set_current(w)
+}
+
+@private
+swap_buffers :: proc(w: ^Window) {
+	_swap_buffers(w)
 }
 
 // #endregion
@@ -270,10 +285,12 @@ window_make :: proc(size: [2]int, title: string) -> (w: ^Window) {
 // #region State
 
 State :: struct {
-	arena:  virtual.Arena,
-	ctx:    runtime.Context,
-	window: list.List,
-	events: Event_List,
+	arena:   virtual.Arena,
+	ctx:     runtime.Context,
+	windows: list.List,
+	events:  Event_List,
+
+	context_current: ^Window,
 	
 	_platform: _State_Platform,
 }
@@ -301,6 +318,30 @@ init :: proc() -> bool {
 	return _state_platform_init(state)
 }
 
+begin_frame :: proc() {
+}
+
+end_frame :: proc() {
+}
+
+begin_window :: proc(w: ^Window) {
+	set_current(w)
+}
+
+end_window :: proc() {
+	if state.context_current == nil {
+		return
+	}
+}
+
+window_iterator :: proc() -> list.Iterator(Window) {
+	return list.iterator_head(state.windows, Window, "node")
+}
+
+window_iterate :: proc(it: ^list.Iterator(Window)) -> (^Window, bool) {
+	return list.iterate_next(it)
+}
+
 // #endregion
 
 Decoration_Hit_Result :: enum {
@@ -320,6 +361,6 @@ Decoration_Hit_Result :: enum {
 
 Decoration_Hit_Proc :: #type proc(pos: [2]f32) -> Decoration_Hit_Result
 
-set_decoration_hit_callback :: proc(procedure: Decoration_Hit_Proc) {
-	_set_decoration_hit_callback(procedure)
+set_decoration_hit_callback :: proc(w: ^Window, procedure: Decoration_Hit_Proc) {
+	w.decoration_hit_proc = procedure
 }
