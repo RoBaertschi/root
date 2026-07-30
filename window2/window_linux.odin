@@ -29,9 +29,33 @@ _Interaction_Key :: distinct u32
 xdg_surface_listener := XDG.surface_listener{
 	configure = proc "c"(data: rawptr, surface: ^XDG.surface, serial: u32) {
 		w := cast(^Window)data
+		p := &w._platform
 
 		XDG.surface_ack_configure(surface, serial)
-		w._platform.xdg_surface_configured = true
+		p.xdg_surface_configured = true
+
+		ok := true
+		context = state.ctx
+
+		p.egl_window = WL.egl_window_create(p.surface, **B.array_cast(w.size, i32))
+		if p.egl_window == nil {
+			log.error("could not create egl window")
+			ok = false
+			return
+		}
+		defer if !ok {
+			WL.egl_window_destroy(p.egl_window)
+		}
+
+		p.egl_surface = egl.CreateWindowSurface(state._platform.egl_display, state._platform.egl_config, egl.NativeWindowType(p.egl_window), nil)
+		if p.egl_surface == egl.NO_SURFACE {
+			log.error("could not create egl surface")
+			ok = false
+			return
+		}
+		defer if !ok {
+			egl.DestroySurface(state._platform.egl_display, p.egl_surface)
+		}
 	},
 }
 
@@ -66,7 +90,7 @@ xdg_toplevel_listener := XDG.toplevel_listener{
 				Event {
 					kind   = .Resize,
 					size   = { int(new_size.x), int(new_size.y) },
-					window = w,
+					window = w.handle,
 				},
 			)
 		}
@@ -80,7 +104,7 @@ xdg_toplevel_listener := XDG.toplevel_listener{
 			&state.events,
 			Event {
 				kind   = .Close_Request,
-				window = w,
+				window = w.handle,
 			},
 		)
 	},
@@ -157,32 +181,14 @@ _window_platform_init :: proc(w: ^Window) -> (ok: bool) {
 	WL.surface_set_opaque_region(p.surface, region)
 	WL.region_destroy(region)
 
-	p.egl_window = WL.egl_window_create(p.surface, **B.array_cast(w.size, i32))
-	if p.egl_window == nil {
-		log.error("could not create egl window")
-		return
-	}
-	defer if !ok {
-		WL.egl_window_destroy(p.egl_window)
-	}
-
-	p.egl_surface = egl.CreateWindowSurface(state._platform.egl_display, state._platform.egl_config, egl.NativeWindowType(p.egl_window), nil)
-	if p.egl_surface == egl.NO_SURFACE {
-		log.error("could not create egl surface")
-		return
-	}
-	defer if !ok {
-		egl.DestroySurface(state._platform.egl_display, p.egl_surface)
-	}
-
 	return true
 }
 
 _window_platform_fini :: proc(w: ^Window) {
 	p := &w._platform
 
-	if state.context_current == w {
-		set_current(nil)
+	if state.context_current == w.handle {
+		_set_current(nil)
 	}
 
 	egl.DestroySurface(state._platform.egl_display, p.egl_surface)
@@ -196,14 +202,51 @@ _window_platform_fini :: proc(w: ^Window) {
 	p^ = {}
 }
 
-window_find_by_surface :: proc(s: ^WL.surface) -> ^Window {
+window_find_by_surface :: proc(s: ^WL.surface) -> Handle {
 	for it := window_iterator(); w in window_iterate(&it) {
 		if w._platform.surface == s {
-			return w
+			return w.handle
 		}
 	}
 
-	return nil
+	return NIL_WINDOW
+}
+
+_window_pointer_pos :: proc(handle: Handle) -> [2]f32 {
+	if handle == state._platform.pointer_current_window {
+		return state._platform.pointer_pos
+	}
+
+	return {}
+}
+
+_window_swap_buffers :: proc(w: ^Window) {
+	p := &w._platform
+
+	if p.xdg_surface_configured {
+		egl.SwapBuffers(state._platform.egl_display, p.egl_surface)
+	}
+}
+
+_window_toggle_maximize :: proc(w: ^Window) {
+	if .Maximized in w.flags {
+		XDG.toplevel_unset_maximized(w._platform.xdg_toplevel)
+	} else {
+		XDG.toplevel_set_maximized(w._platform.xdg_toplevel)
+	}
+}
+
+_window_minimize :: proc(w: ^Window) {
+	XDG.toplevel_set_minimized(w._platform.xdg_toplevel)
+}
+
+_window_show_decoration_menu :: proc(w: ^Window, pos: [2]f32, key: Interaction_Key) {
+	XDG.toplevel_show_window_menu(
+		w._platform.xdg_toplevel,
+		state._platform.seat,
+		u32(key),
+		**B.array_cast(pos, i32),
+	)
 }
 
 // #endregion
@@ -225,18 +268,20 @@ wl_pointer_listener := WL.pointer_listener{
 
 		WL.pointer_set_cursor(pointer, serial_, p.cursor_surface, i32(p.cursor_image.hotspot_x), i32(p.cursor_image.hotspot_y))
 
-		w := window_find_by_surface(surface)
-		
-		if w == nil {
+		window := window_find_by_surface(surface)
+
+		if window == NIL_WINDOW {
 			return
 		}
 
-		state._platform.pointer_current_window = w
-		state._platform.pointer_pos            = { WL.fixed_to_f32(surface_x), WL.fixed_to_f32(surface_y) }
+		p.pointer_current_window = window
+		p.pointer_pos            = { WL.fixed_to_f32(surface_x), WL.fixed_to_f32(surface_y) }
 	},
 	leave = proc "c"(data: rawptr, pointer: ^WL.pointer, serial_: u32, surface_: ^WL.surface) {
-		state._platform.pointer_current_window = nil
-		state._platform.pointer_pos            = {}
+		p := &state._platform
+
+		p.pointer_current_window = NIL_WINDOW
+		p.pointer_pos            = {}
 	},
 	motion = proc "c"(data: rawptr, pointer: ^WL.pointer, time: u32, surface_x: WL.fixed_t, surface_y: WL.fixed_t) {
 		p := &state._platform
@@ -244,7 +289,7 @@ wl_pointer_listener := WL.pointer_listener{
 	},
 	button = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, serial: u32, time: u32, button_: u32, button_state_: u32) {
 		p := &state._platform
-		
+
 		button_state := WL.pointer_button_state(button_state_)
 		button       := Wl_Button(button_)
 
@@ -263,7 +308,8 @@ wl_pointer_listener := WL.pointer_listener{
 
 		context = state.ctx
 
-		w := state._platform.pointer_current_window
+		window := state._platform.pointer_current_window
+		w := window_from_handle(window)
 
 		if button_state == .pressed && w.decoration_hit_proc != nil {
 			result := w.decoration_hit_proc(p.pointer_pos)
@@ -303,7 +349,7 @@ wl_pointer_listener := WL.pointer_listener{
 				pos         = p.pointer_pos,
 				key         = button_lookup[button],
 				key_state   = button_state_lookup[button_state],
-				window      = w,
+				window      = window,
 				interaction = Interaction_Key(serial),
 			},
 		)
@@ -593,16 +639,15 @@ wl_keyboard_listener := WL.keyboard_listener{
 	enter = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, surface_: ^WL.surface, keys_: WL.array) {
 		context = state.ctx
 
-		w := window_find_by_surface(surface_)
-
-		state._platform.keyboard_current_window = w
+		state._platform.keyboard_current_window = window_find_by_surface(surface_)
 	},
 
 	leave = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial: u32, surface_: ^WL.surface) {
 		p := &state._platform
 
-		p.keyboard_current_window = nil
-		
+		window := p.keyboard_current_window
+		p.keyboard_current_window = NIL_WINDOW
+
 		context = state.ctx
 
 		node := p.pressed_keys
@@ -615,7 +660,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 					key_state   = .Released,
 					modifiers   = event_modifiers_from_xkb_state(p.xkb_state),
 					interaction = Interaction_Key(serial),
-					window      = state._platform.keyboard_current_window,
+					window      = window,
 				},
 			)
 
@@ -638,7 +683,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 
 	keymap = proc "c"(data: rawptr, keyboard: ^WL.keyboard, format: WL.keyboard_keymap_format, fd: i32, size: u32) {
 		p := &state._platform
-		
+
 		context = state.ctx
 
 		if format != .xkb_v1 {
@@ -651,7 +696,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 			log.errorf("could not map keymap file from wayland compositor: %v", posix.errno())
 			return
 		}
- 
+
 		locale := posix.setlocale(.CTYPE, nil)
 
 		p.xkb_mapping       = XKB.keymap_new_from_string(p.xkb_ctx, cast(cstring)keymap, .TEXT_V1, {})
@@ -666,7 +711,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 
 	key = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial: u32, time_: u32, key: u32, key_state: WL.keyboard_key_state) {
 		p := &state._platform
-		
+
 		context = state.ctx
 
 		keycode := XKB.keycode_t(key + 8)
@@ -694,7 +739,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 
 	modifiers = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, mods_depressed_: u32, mods_latched_: u32, mods_locked_: u32, group_: u32) {
 		p := &state._platform
-		
+
 		XKB.state_update_mask(
 			p.xkb_state,
 			XKB.mod_mask_t(mods_depressed_),
@@ -778,13 +823,13 @@ _State_Platform :: struct {
 
 	pointer:                 Maybe(^WL.pointer),
 	pointer_pos:             [2]f32,
-	pointer_current_window:  ^Window,
+	pointer_current_window:  Handle,
 	cursor_image:            ^WL.cursor_image,
 	cursor_surface:          ^WL.surface,
 
 	xkb_ctx:                 ^XKB.context_,
 	keyboard:                Maybe(^WL.keyboard),
-	keyboard_current_window: ^Window,
+	keyboard_current_window: Handle,
 	keyboard_repeat_delay:   i32,
 	keyboard_repeat_rate:    i32,
 	keyboard_last_keycode:   XKB.keycode_t,
@@ -935,9 +980,13 @@ _state_platform_init :: proc(s: ^State) -> (ok: bool) {
 	return
 }
 
-_set_current :: proc(w: ^Window) {
+_set_current :: proc(w: ^Window) -> bool {
 	read, draw := egl.NO_SURFACE, egl.NO_SURFACE
 	ctx        := egl.NO_CONTEXT
+
+	if w != nil && !w._platform.xdg_surface_configured {
+		return false
+	}
 
 	if w != nil {
 		read = w._platform.egl_surface
@@ -945,7 +994,7 @@ _set_current :: proc(w: ^Window) {
 		ctx  = state._platform.egl_context
 	}
 
-	state.context_current = w
+	state.context_current = w.handle if w != nil else NIL_WINDOW
 
 	if !egl.MakeCurrent(
 		state._platform.egl_display,
@@ -955,12 +1004,30 @@ _set_current :: proc(w: ^Window) {
 	) {
 		log.errorf("failed to make egl context current")
 		egl.MakeCurrent(state._platform.egl_display, egl.NO_SURFACE, egl.NO_SURFACE, egl.NO_CONTEXT)
-		state.context_current = nil
+		state.context_current = NIL_WINDOW
+
+		return false
 	}
+
+	return true
 }
 
-_swap_buffers :: proc(w: ^Window) {
-	egl.SwapBuffers(state._platform.egl_display, w._platform.egl_surface)
+_gather_events :: proc() {
+	p := &state._platform
+
+	// poll events
+	if WL.display_dispatch(p.display) == -1 {
+		log.errorf("could not dispatch wayland display: %v", WL.display_get_error(p.display))
+	}
+
+	// handle keyboard repeat
+	if (p.keyboard_next_deadline != time.Tick{} &&
+		time.tick_diff(time.tick_now(), p.keyboard_next_deadline) < 0) {
+
+		p.keyboard_next_deadline = time.tick_add(time.tick_now(), time.Second / time.Duration(p.keyboard_repeat_rate))
+
+		keycode_pressed(p.keyboard_last_keycode, p.keyboard_last_serial)
+	}
 }
 
 // #endregion

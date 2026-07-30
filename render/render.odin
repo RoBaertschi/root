@@ -138,6 +138,20 @@ init :: proc() -> (ok: bool) {
 	return
 }
 
+fini :: proc() {
+	gl.DeleteBuffers(1, &state.vbo)
+	gl.DeleteVertexArrays(1, &state.vao)
+
+	gl.DeleteProgram(state.shader_program)
+
+	for it := B.hm_iterator_make_all(&state.textures); texture, handle in B.hm_iterate(&it) {
+		gl.DeleteTextures(1, &texture.id)
+		B.hm_remove(&state.textures, handle)
+	}
+
+	B.arena_destroy_bootstrapped(&state.arena)
+}
+
 begin_frame :: proc(window_size: [2]int) {
 	state.window_size = window_size
 

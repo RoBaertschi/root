@@ -11,7 +11,7 @@ import "core:mem/virtual"
 import "core:hash/xxhash"
 import "core:container/xar"
 
-import W "../window"
+import W "../window2"
 import F "../font"
 import B "../base"
 import R "../render"
@@ -105,12 +105,7 @@ fini :: proc() {
 		virtual.arena_destroy(&arena)
 	}
 
-	// locking the arena before freeing it
-	sync.lock(&state.perm_arena.mutex)
-	local       := state.perm_arena
-	local.mutex  = {} // resetting the mutex, nobody except this function has the local copy of this mutex
-	virtual.arena_destroy(&local)
-
+	B.arena_destroy_bootstrapped(&state.perm_arena)
 	state = nil
 }
 
@@ -221,6 +216,7 @@ Begin_Description :: struct {
 	root_size:  [2]f32,
 	root_key:   string,
 	delta_time: f32,
+	window:     W.Handle,
 }
 
 begin :: proc(desc: Begin_Description) {
@@ -231,8 +227,8 @@ begin :: proc(desc: Begin_Description) {
 
 	init_stacks()
 
-	state.events     = events_from_w_events(W.events())
-	state.mouse_pos  = W.mouse()
+	state.events     = events_from_consuming_w_events(W.events(), desc.window)
+	state.mouse_pos  = W.window_pointer_pos(desc.window)
 	state.delta_time = desc.delta_time
 
 	semantic_width_set_next(pixels(desc.root_size.x, 1))

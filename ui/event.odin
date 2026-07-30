@@ -3,7 +3,7 @@ package oui
 import "core:log"
 import "core:container/intrusive/list"
 
-import W "../window"
+import W "../window2"
 import B "../base"
 
 Event_Kind :: enum {
@@ -164,7 +164,7 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 
 	if state.mouse_drag == b.key {
 		s.drag_delta = state.mouse_pos - state.mouse_drag_start
-		s.flags     += {.Dragging}		
+		s.flags     += {.Dragging}
 	}
 
 	if .Clickable in b.flags {
@@ -178,8 +178,12 @@ signal_from_box :: proc(b: ^Box) -> (s: Signal) {
 	return
 }
 
-events_from_w_events :: proc(events: ^W.Event_List) -> (el: Event_List) {
+events_from_consuming_w_events :: proc(events: ^W.Event_List, window: W.Handle) -> (el: Event_List) {
 	for it := W.event_list_iterator(events^); event, event_node in W.event_list_iterate(&it) {
+		if event.window != window {
+			continue
+		}
+
 		remove := false
 
 		switch event.kind {

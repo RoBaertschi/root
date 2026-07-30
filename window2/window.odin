@@ -160,7 +160,7 @@ Event :: struct {
 	size:        [2]int,
 	pos:         [2]f32,
 	key:         Event_Key,
-	window:      ^Window,
+	window:      Handle,
 	key_state:   Event_Key_State,
 	modifiers:   Event_Modifiers,
 	codepoint:   rune,
@@ -235,12 +235,20 @@ Window_Flag :: enum {
 
 Window_Flags :: bit_set[Window_Flag]
 
+Handle :: struct {
+	idx: u32,
+	gen: u32,
+}
+
+NIL_WINDOW :: Handle {}
+
 Window :: struct {
-	node:  list.Node,
-	arena: virtual.Arena,
-	flags: Window_Flags,
-	title: string,
-	size:  [2]int,
+	handle: Handle,
+	node:   list.Node,
+	arena:  virtual.Arena,
+	flags:  Window_Flags,
+	title:  string,
+	size:   [2]int,
 
 	decoration_hit_proc: Decoration_Hit_Proc,
 
@@ -257,27 +265,133 @@ window_allocator :: proc(w: ^Window) -> runtime.Allocator {
 	return virtual.arena_allocator(window_arena(w))
 }
 
-window_make :: proc(size: [2]int, title: string) -> (w: ^Window) {
-	w, _ = virtual.arena_growing_bootstrap_new(Window, "arena")
+window_from_handle :: proc(handle: Handle) -> ^Window {
+	return B.hm_get(&state.window_map, handle) or_else B.hm_get(&state.window_map, NIL_WINDOW)
+}
+
+window_from_handle_try :: proc(handle: Handle) -> (^Window, bool) {
+	if handle == NIL_WINDOW {
+		return nil, false
+	}
+
+	return B.hm_get(&state.window_map, handle)
+}
+
+window_make :: proc(size: [2]int, title: string) -> (handle: Handle) {
+	handle, _ = B.hm_add(&state.window_map, Window{})
+
+	w := window_from_handle(handle)
+
+	if err := virtual.arena_init_growing(&w.arena); err != nil {
+		_, _ = B.hm_remove(&state.window_map, handle)
+		return NIL_WINDOW
+	}
 
 	w.size = size
 	w.title = strings.clone(title, window_allocator(w))
 
-	_window_platform_init(w)
+	if !_window_platform_init(w) {
+		virtual.arena_destroy(&w.arena)
+		_, _ = B.hm_remove(&state.window_map, handle)
+		return NIL_WINDOW
+	}
 
 	list.push_back(&state.windows, &w.node)
 
 	return
 }
 
+window_destroy :: proc(handle: Handle) {
+	if handle == NIL_WINDOW {
+		return
+	}
+
+	w := window_from_handle(handle)
+
+	found, err := B.hm_remove(&state.window_map, handle)
+	if err != nil || !found {
+		return
+	}
+
+	if state.context_current == handle {
+		_set_current(nil)
+	}
+
+	p := &state._platform
+	if p.pointer_current_window == handle {
+		p.pointer_current_window = NIL_WINDOW
+	}
+	if p.keyboard_current_window == handle {
+		p.keyboard_current_window = NIL_WINDOW
+	}
+
+	list.remove(&state.windows, &w.node)
+	_window_platform_fini(w)
+	virtual.arena_destroy(&w.arena)
+}
+
+window_flags :: proc(handle: Handle) -> Window_Flags {
+	return window_from_handle(handle).flags
+}
+
+window_title :: proc(handle: Handle) -> string {
+	return window_from_handle(handle).title
+}
+
+window_size :: proc(handle: Handle) -> [2]int {
+	return window_from_handle(handle).size
+}
+
+window_pointer_pos :: proc(handle: Handle) -> [2]f32 {
+	return _window_pointer_pos(handle)
+}
+
 // Set current window to use for the OpenGL context
-set_current :: proc(w: ^Window) {
-	_set_current(w)
+set_current :: proc(handle: Handle) -> bool {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		_set_current(nil)
+		return false
+	}
+
+	return _set_current(w)
 }
 
 @private
-swap_buffers :: proc(w: ^Window) {
-	_swap_buffers(w)
+window_swap_buffers :: proc(handle: Handle) {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		return
+	}
+
+	_window_swap_buffers(w)
+}
+
+window_toggle_maximize :: proc(handle: Handle) {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		return
+	}
+
+	_window_toggle_maximize(w)
+}
+
+window_minimize :: proc(handle: Handle) {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		return
+	}
+
+	_window_minimize(w)
+}
+
+window_show_decoration_menu :: proc(handle: Handle, pos: [2]f32, key: Interaction_Key) {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		return
+	}
+
+	_window_show_decoration_menu(w, pos, key)
 }
 
 // #endregion
@@ -285,13 +399,14 @@ swap_buffers :: proc(w: ^Window) {
 // #region State
 
 State :: struct {
-	arena:   virtual.Arena,
-	ctx:     runtime.Context,
-	windows: list.List,
-	events:  Event_List,
+	arena:      virtual.Arena,
+	ctx:        runtime.Context,
+	window_map: B.Handle_Map(Window, Handle),
+	windows:    list.List,
+	events:     Event_List,
 
-	context_current: ^Window,
-	
+	context_current: Handle,
+
 	_platform: _State_Platform,
 }
 
@@ -315,23 +430,43 @@ init :: proc() -> bool {
 
 	state.ctx = context
 
+	B.hm_init(&state.window_map, Window{}, state_allocator())
+
 	return _state_platform_init(state)
 }
 
 begin_frame :: proc() {
+	gather_events()
 }
 
 end_frame :: proc() {
+	event_list_clear(&state.events)
 }
 
-begin_window :: proc(w: ^Window) {
-	set_current(w)
+@(deferred_none=end_frame)
+frame_guard :: proc() {
+	begin_frame()
+}
+
+begin_window :: proc(handle: Handle) -> bool {
+	return set_current(handle)
 }
 
 end_window :: proc() {
-	if state.context_current == nil {
+	if state.context_current == NIL_WINDOW {
 		return
 	}
+
+	window_swap_buffers(state.context_current)
+}
+
+@(deferred_in=_window_guard_end)
+window_guard :: proc(handle: Handle, loc := #caller_location) -> bool {
+	return begin_window(handle)
+}
+
+_window_guard_end :: proc(handle: Handle, loc: runtime.Source_Code_Location) {
+	end_window()
 }
 
 window_iterator :: proc() -> list.Iterator(Window) {
@@ -340,6 +475,15 @@ window_iterator :: proc() -> list.Iterator(Window) {
 
 window_iterate :: proc(it: ^list.Iterator(Window)) -> (^Window, bool) {
 	return list.iterate_next(it)
+}
+
+@private
+gather_events :: proc() {
+	_gather_events()
+}
+
+events :: proc() -> ^Event_List {
+	return &state.events
 }
 
 // #endregion
@@ -361,6 +505,11 @@ Decoration_Hit_Result :: enum {
 
 Decoration_Hit_Proc :: #type proc(pos: [2]f32) -> Decoration_Hit_Result
 
-set_decoration_hit_callback :: proc(w: ^Window, procedure: Decoration_Hit_Proc) {
+set_decoration_hit_callback :: proc(handle: Handle, procedure: Decoration_Hit_Proc) {
+	w, ok := window_from_handle_try(handle)
+	if !ok {
+		return
+	}
+
 	w.decoration_hit_proc = procedure
 }

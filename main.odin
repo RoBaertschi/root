@@ -1,14 +1,15 @@
 package root
 
+import "core:c"
 import "core:time"
 import "core:os"
 import "core:log"
 
 import F "font"
-import W "window"
 import R "render"
 import B "base"
 import UI "ui"
+import W "window2"
 
 title_bar_rect: B.Rect(f32)
 
@@ -22,16 +23,16 @@ main :: proc() {
 
 	font := F.from_path("/usr/share/fonts/noto/NotoSansMyanmar-Regular.ttf", 0)
 
-	if !W.init({
-		size  = { 800, 600 },
-		title = "root",
-	}) {
+	if !W.init() {
 		os.exit(1)
 	}
 
-	if !R.init() {
-		os.exit(1)
-	}
+	w := W.window_make({ 800, 600 }, "root")
+	W.set_current(w)
+
+	// if !R.init() {
+	// 	os.exit(1)
+	// }
 
 	// gl, lines := F.shape_text(font, "Hello World!^a â ö یکအမည်မရှိیک", temp)
 	// gl, lines := F.shape_text(font, 16, "Hello World!", temp)
@@ -54,7 +55,7 @@ main :: proc() {
 	UI.init()
 	defer UI.fini()
 
-	W.set_decoration_hit_callback(proc(pos: [2]f32) -> W.Decoration_Hit_Result {
+	W.set_decoration_hit_callback(w, proc(pos: [2]f32) -> W.Decoration_Hit_Result {
 		if B.rect_contains(title_bar_rect, pos) {
 			return .Draggable
 		}
@@ -62,188 +63,205 @@ main :: proc() {
 		return .None
 	})
 
+
 	last_time: time.Tick
+
+	renderer_initalized: bool
 
 	run := true
 	for run {
 		current_time := f32(time.tick_lap_time(&last_time)) / f32(time.Second)
 
-		events := W.events()
-
-		for it := W.event_list_iterator(events^);
-			ev, ev_node in W.event_list_iterate(&it)
-		{
-			if ev.kind == .Close_Request {
-				W.event_list_remove(events, ev_node)
-				run = false
+		defer F.frame()
+		W.frame_guard()
+		if W.window_guard(w) {
+			if !renderer_initalized {
+				if !R.init() {
+					os.exit(1)
+				}
+				renderer_initalized = true
 			}
-		}
 
-		R.begin_frame(W.size())
+			events := W.events()
 
-		UI.begin({
-			root_key   = "",
-			root_size  = B.array_cast(W.size(), f32),
-			delta_time = current_time,
-		})
-		{
-			UI.semantic_width_guard(UI.percent_of_parent(1, 1))
-			UI.semantic_height_guard(UI.percent_of_parent(1, 1))
-			UI.parent_guard(UI.box_make({}, ""))
-			UI.semantic_height_guard(UI.children_sum(1))
-			UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
-
-			title_bar      := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
-			title_bar_rect  = title_bar.rect
+			for it := W.event_list_iterator(events^);
+				ev, ev_node in W.event_list_iterate(&it)
 			{
-				UI.parent_guard(title_bar)
+				if ev.window != w {
+					continue
+				}
 
-				if UI.center(.Y) {
-					UI.semantic_height_set_next(UI.children_sum(1))
-					if UI.stack(.X) {
-						UI.label("nyx")
-
-						UI.semantic_width_set_next(UI.pixels(120, 1))
-						UI.semantic_height_set_next(UI.text_content(1))
-						UI.text_padding_set_next(10)
-						UI.box_make({ .Draw_Text }, " la+pad")
-
-						UI.semantic_width_set_next(UI.pixels(120, 1))
-						UI.semantic_height_set_next(UI.text_content(1))
-						UI.text_alignment_set_next(.Center)
-						UI.text_padding_set_next(10)
-						UI.box_make({ .Draw_Text }, " ca+pad ")
-
-						UI.semantic_width_set_next(UI.pixels(120, 1))
-						UI.semantic_height_set_next(UI.text_content(1))
-						UI.text_alignment_set_next(.Right)
-						UI.text_padding_set_next(10)
-						UI.box_make({ .Draw_Text }, "ra+pad ")
-
-						UI.spacer(.X, UI.percent_of_parent(1, 0))
-
-						if .Minimize_Supported in W.flags() && .Clicked_Left in UI.button("minimize").flags {
-							W.minimize()
-						}
-						if .Maximize_Supported in W.flags() && .Clicked_Left in UI.button("maximize").flags {
-							W.toggle_maximize()
-						}
-						if .Clicked_Left in UI.button("close").flags {
-							run = false
-						}
-					}
+				if ev.kind == .Close_Request {
+					W.event_list_remove(events, ev_node)
+					run = false
 				}
 			}
 
-			UI.semantic_height_set_next(UI.pixels(200, 1))
-			UI.semantic_width_set_next(UI.pixels(200, 1))
-			UI.fixed_x_set_next(20)
-			UI.fixed_y_set_next(20)
-			UI.background_color_set_next({ 1, 0, 0, 1 })
-			floating        := UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background, .Draw_Hover, .Clickable }, "floating")
-			floating_signal := UI.signal_from_box(floating)
-			if .Dragging in floating_signal.flags || .Dragging_Pick in floating_signal.flags || .Dragging_Drop in floating_signal.flags {
-				log.info(floating_signal.flags)
-				UI.semantic_height_set_next(UI.pixels(50, 1))
-				UI.semantic_width_set_next(UI.pixels(50, 1))
-				UI.fixed_x_set_next(floating.rect.pos.x + floating_signal.drag_delta.x)
-				UI.fixed_y_set_next(floating.rect.pos.y + floating_signal.drag_delta.y)
-				UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "")
+			R.begin_frame(W.window_size(w))
+
+			UI.begin({
+				root_key   = "",
+				root_size  = B.array_cast(W.window_size(w), f32),
+				delta_time = current_time,
+				window     = w,
+			})
+			{
+				UI.semantic_width_guard(UI.percent_of_parent(1, 1))
+				UI.semantic_height_guard(UI.percent_of_parent(1, 1))
+				UI.parent_guard(UI.box_make({}, ""))
+				UI.semantic_height_guard(UI.children_sum(1))
+				UI.background_color_set_next({ 0.5, 0.3, 0.3, 1 })
+
+				title_bar      := UI.box_make({ .Draw_Background, .Clickable }, "title-bar")
+				title_bar_rect  = title_bar.rect
+				{
+					UI.parent_guard(title_bar)
+
+					if UI.center(.Y) {
+						UI.semantic_height_set_next(UI.children_sum(1))
+						if UI.stack(.X) {
+							UI.label("nyx")
+
+							UI.semantic_width_set_next(UI.pixels(120, 1))
+							UI.semantic_height_set_next(UI.text_content(1))
+							UI.text_padding_set_next(10)
+							UI.box_make({ .Draw_Text }, " la+pad")
+
+							UI.semantic_width_set_next(UI.pixels(120, 1))
+							UI.semantic_height_set_next(UI.text_content(1))
+							UI.text_alignment_set_next(.Center)
+							UI.text_padding_set_next(10)
+							UI.box_make({ .Draw_Text }, " ca+pad ")
+
+							UI.semantic_width_set_next(UI.pixels(120, 1))
+							UI.semantic_height_set_next(UI.text_content(1))
+							UI.text_alignment_set_next(.Right)
+							UI.text_padding_set_next(10)
+							UI.box_make({ .Draw_Text }, "ra+pad ")
+
+							UI.spacer(.X, UI.percent_of_parent(1, 0))
+
+							if .Minimize_Supported in W.window_flags(w) && .Clicked_Left in UI.button("minimize").flags {
+								W.window_minimize(w)
+							}
+							if .Maximize_Supported in  W.window_flags(w) && .Clicked_Left in UI.button("maximize").flags {
+								W.window_toggle_maximize(w)
+							}
+							if .Clicked_Left in UI.button("close").flags {
+								run = false
+							}
+						}
+					}
+				}
+
+				UI.semantic_height_set_next(UI.pixels(200, 1))
+				UI.semantic_width_set_next(UI.pixels(200, 1))
+				UI.fixed_x_set_next(20)
+				UI.fixed_y_set_next(20)
+				UI.background_color_set_next({ 1, 0, 0, 1 })
+				floating        := UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background, .Draw_Hover, .Clickable }, "floating")
+				floating_signal := UI.signal_from_box(floating)
+				if .Dragging in floating_signal.flags || .Dragging_Pick in floating_signal.flags || .Dragging_Drop in floating_signal.flags {
+					log.info(floating_signal.flags)
+					UI.semantic_height_set_next(UI.pixels(50, 1))
+					UI.semantic_width_set_next(UI.pixels(50, 1))
+					UI.fixed_x_set_next(floating.rect.pos.x + floating_signal.drag_delta.x)
+					UI.fixed_y_set_next(floating.rect.pos.y + floating_signal.drag_delta.y)
+					UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "")
+				}
+				UI.parent_guard(floating)
+				UI.labelf("floating text %v: %v", floating.computed_rel_position, floating.rect)
 			}
-			UI.parent_guard(floating)
-			UI.labelf("floating text %v: %v", floating.computed_rel_position, floating.rect)
+			UI.end()
+
+			// for x in 0..<20 {
+			// 	for y in 0..<20 {
+			// 		R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
+			// 	}
+			// }
+
+			// text := "Yolo!!!!????>= ==="
+			//
+			// run := F.get_run(0, 64, text)
+			//
+			// draw_text :: proc(pos: [2]f32, s: string) {
+			// 	run := F.get_run(0, 32, s)
+			//
+			// 	for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
+			// 		_ = R.rect(
+			// 			r       = { pos = rglyph.pos + pos, size = linalg.array_cast(rglyph.glyph.used_rect.size, f32) },
+			// 			color   = { 0, 0, 0, 1 },
+			// 			tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
+			// 			texture = rglyph.glyph.atlas.texture,
+			// 		)
+			// 	}
+			// }
+			//
+			// temp := B.TEMP_ALLOCATOR_GUARD()
+			// mouse_pos     := W.mouse()
+			// mouse_pos_str := fmt.aprintf("x: %v, y: %v", mouse_pos.x, mouse_pos.y)
+			// draw_text({}, mouse_pos_str)
+			//
+			// gl := run.glyphs
+			// for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
+			// 	glyph_node := grapheme.start
+			//
+			// 	for i in 0..<grapheme.count {
+			// 		render_glyph := glyph_node.glyph
+			//
+			// 		{
+			// 			used_rect := B.rect_cast(render_glyph.glyph.used_rect, f32)
+			//
+			// 			r := R.rect(
+			// 				r       = { pos = render_glyph.pos + { 0, 800 }, size = used_rect.size },
+			// 				color   = { 0, 0, 1, 1 },
+			// 				tex_r   = used_rect,
+			// 				texture = render_glyph.glyph.atlas.texture,
+			// 			)
+			//
+			// 			r.color[._00] = { 1, 0, 0, 1 }
+			// 			r.color[._11] = { 1, 0, 0, 1 }
+			// 			// r.edge_softness = 0.5
+			// 			// r.corner_radius = 4
+			//
+			// 			draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
+			// 		}
+			//
+			// 		glyph_node = glyph_node.next
+			// 	}
+			//
+			//
+			// 	// {
+			// 	// 	r := R.rect(
+			// 	// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
+			// 	// 		color   = { 0, 0, 1, 1 },
+			// 	// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
+			// 	// 		// texture = render_glyph.glyph.atlas.texture,
+			// 	// 	)
+			// 	//
+			// 	// 	// r.color[._10] = { 1, 0, 0, 1 }
+			// 	// 	// r.color[._01] = { 1, 0, 0, 1 }
+			// 	// 	r.edge_softness = 0.5
+			// 	// 	r.corner_radius = 4
+			// 	// 	r.border_thickness = 4
+			// 	// }
+			// }
+			//
+			// {
+			// 	r := R.rect(
+			// 		r     = { pos = run.visible.pos + { 0, 800 } - { 2, 2 }, size = run.visible.size + { 4, 4 } },
+			// 		color = { 0, 0, 1, 1 },
+			// 	)
+			// 	r.color[._00] = { 1, 0, 0, 1 }
+			// 	r.color[._11] = { 1, 0, 0, 1 }
+			// 	r.corner_radius = 4
+			// 	r.border_thickness = 2
+			// }
+
+			UI.render()
+
+			R.end_frame()
 		}
-		UI.end()
-
-		// for x in 0..<20 {
-		// 	for y in 0..<20 {
-		// 		R.rect({ pos = { 10 + f32(x) * 40, 10 + f32(y) * 40 }, size = { 30, 30 } }, { 1, 0, 0, 1 })
-		// 	}
-		// }
-
-		// text := "Yolo!!!!????>= ==="
-		//
-		// run := F.get_run(0, 64, text)
-		//
-		// draw_text :: proc(pos: [2]f32, s: string) {
-		// 	run := F.get_run(0, 32, s)
-		//
-		// 	for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
-		// 		_ = R.rect(
-		// 			r       = { pos = rglyph.pos + pos, size = linalg.array_cast(rglyph.glyph.used_rect.size, f32) },
-		// 			color   = { 0, 0, 0, 1 },
-		// 			tex_r   = B.rect_cast(rglyph.glyph.used_rect, f32),
-		// 			texture = rglyph.glyph.atlas.texture,
-		// 		)
-		// 	}
-		// }
-		//
-		// temp := B.TEMP_ALLOCATOR_GUARD()
-		// mouse_pos     := W.mouse()
-		// mouse_pos_str := fmt.aprintf("x: %v, y: %v", mouse_pos.x, mouse_pos.y)
-		// draw_text({}, mouse_pos_str)
-		//
-		// gl := run.glyphs
-		// for it := F.grapheme_list_iterator(run.graphemes); grapheme in F.grapheme_list_iterate(&it) {
-		// 	glyph_node := grapheme.start
-		//
-		// 	for i in 0..<grapheme.count {
-		// 		render_glyph := glyph_node.glyph
-		//
-		// 		{
-		// 			used_rect := B.rect_cast(render_glyph.glyph.used_rect, f32)
-		//
-		// 			r := R.rect(
-		// 				r       = { pos = render_glyph.pos + { 0, 800 }, size = used_rect.size },
-		// 				color   = { 0, 0, 1, 1 },
-		// 				tex_r   = used_rect,
-		// 				texture = render_glyph.glyph.atlas.texture,
-		// 			)
-		//
-		// 			r.color[._00] = { 1, 0, 0, 1 }
-		// 			r.color[._11] = { 1, 0, 0, 1 }
-		// 			// r.edge_softness = 0.5
-		// 			// r.corner_radius = 4
-		//
-		// 			draw_text({ r.dst_00.x, 800 + 64 }, text[render_glyph.source.start:render_glyph.source.end])
-		// 		}
-		//
-		// 		glyph_node = glyph_node.next
-		// 	}
-		//
-		//
-		// 	// {
-		// 	// 	r := R.rect(
-		// 	// 		r       = { pos = render_glyph.pos - { 4, 4 }, size = linalg.array_cast(render_glyph.glyph.used_rect.size, f32) + { 8, 8 } },
-		// 	// 		color   = { 0, 0, 1, 1 },
-		// 	// 		// tex_r   = B.rect_cast(render_glyph.glyph.used_rect, f32),
-		// 	// 		// texture = render_glyph.glyph.atlas.texture,
-		// 	// 	)
-		// 	//
-		// 	// 	// r.color[._10] = { 1, 0, 0, 1 }
-		// 	// 	// r.color[._01] = { 1, 0, 0, 1 }
-		// 	// 	r.edge_softness = 0.5
-		// 	// 	r.corner_radius = 4
-		// 	// 	r.border_thickness = 4
-		// 	// }
-		// }
-		//
-		// {
-		// 	r := R.rect(
-		// 		r     = { pos = run.visible.pos + { 0, 800 } - { 2, 2 }, size = run.visible.size + { 4, 4 } },
-		// 		color = { 0, 0, 1, 1 },
-		// 	)
-		// 	r.color[._00] = { 1, 0, 0, 1 }
-		// 	r.color[._11] = { 1, 0, 0, 1 }
-		// 	r.corner_radius = 4
-		// 	r.border_thickness = 2
-		// }
-
-		UI.render()
-
-		R.end_frame()
-		W.frame()
-		F.frame()
 	}
 
 	// proposed api

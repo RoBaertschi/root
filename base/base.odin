@@ -1,5 +1,6 @@
 package root_base
 
+import "core:sync"
 import "core:math/linalg"
 import "core:container/xar"
 import "core:fmt"
@@ -18,6 +19,14 @@ arena_new_clone :: proc(arena: ^virtual.Arena, value: $T, loc := #caller_locatio
 arena_make :: proc(arena: ^virtual.Arena, $T: typeid/[]$E, #any_int len: int, loc := #caller_location) -> T {
 	value, _ := virtual.make(arena, T, len, loc = loc)
 	return value
+}
+
+arena_destroy_bootstrapped :: proc(arena: ^virtual.Arena) {
+	// locking the arena before freeing it
+	sync.lock(&arena.mutex)
+	local       := arena^
+	local.mutex  = {} // resetting the mutex, nobody except this function has the local copy of this mutex
+	virtual.arena_destroy(&local)
 }
 
 array_cast :: linalg.array_cast

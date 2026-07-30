@@ -108,36 +108,43 @@ hm_clear :: proc "contextless" (m: ^$D/Handle_Map($T, $Handle_Type)) {
 
 // NOTE: Similar problem as above, how do we handle an empty slot.
 //
-// // An iterator for a handle map.
-// Handle_Map_Iterator :: struct($D: typeid) {
-// 	m:     ^D,
-// 	index: int,
-// }
-//
-// // Makes an iterator from a handle map.
-// @(require_results)
-// hm_iterator_make :: proc "contextless" (m: ^$D/Handle_Map($T, $Handle_Type)) -> Handle_Map_Iterator(D) {
-// 	return {m, 1}
-// }
-//
-// /*
-// 	Iterate over a handle map. It will skip over unused item slots (e.g. handle.idx == 0).
-// 	Usage:
-// 		it := hm.hm_iterator_make(&the_handle_map)
-// 		for item, handle in hm.iterate(&it) {
-// 			...
-// 		}
-// */
-// @(require_results)
-// hm_iterate :: proc "contextless" (it: ^$DHI/Handle_Map_Iterator($D/Handle_Map($T, $Handle_Type))) -> (val: ^T, h: Handle_Type, ok: bool) {
-// 	for _ in it.index..<xar.len(it.m.items) {
-// 		e := xar.get_ptr_unsafe(&it.m.items, it.index)
-// 		it.index += 1
-//
-// 		if e.handle.idx != 0 {
-// 			return e, e.handle, true
-// 		}
-// 	}
-// 	it.index = 0
-// 	return
-// }
+// An iterator for a handle map.
+Handle_Map_Iterator :: struct($D: typeid) {
+	m:     ^D,
+	index: int,
+}
+
+// Makes an iterator from a handle map.
+// This one also iterates the zero value
+@(require_results)
+hm_iterator_make_all :: proc "contextless" (m: ^$D/Handle_Map($T, $Handle_Type)) -> Handle_Map_Iterator(D) {
+	return {m, 0}
+}
+
+// Makes an iterator from a handle map.
+@(require_results)
+hm_iterator_make :: proc "contextless" (m: ^$D/Handle_Map($T, $Handle_Type)) -> Handle_Map_Iterator(D) {
+	return {m, 0}
+}
+
+/*
+	Iterate over a handle map. It will skip over unused item slots (e.g. handle.idx == 0).
+	Usage:
+		it := hm.hm_iterator_make(&the_handle_map)
+		for item, handle in hm.iterate(&it) {
+			...
+		}
+*/
+@(require_results)
+hm_iterate :: proc "contextless" (it: ^$DHI/Handle_Map_Iterator($D/Handle_Map($T, $Handle_Type))) -> (val: ^T, h: Handle_Type, ok: bool) {
+	for _ in it.index..<xar.len(it.m.items) {
+		e := xar.get_ptr_unsafe(&it.m.items, it.index)
+		it.index += 1
+
+		if e.handle.idx != 0 {
+			return e, e.handle, true
+		}
+	}
+	it.index = 0
+	return
+}
