@@ -24,25 +24,25 @@ The UI still needs a lot of work.
 
 Quite nice already, works for my use case.
 
-- [ ] Figure out why so unclear
+- [x] Figure out why so unclear
 - [ ] Rename ID -> Key/Handle
 
 ## Window
 
 Needs a general refactor for multiple, nice to have, features.
 
-- [ ] Refactor window creation out and make it reusable, also track all created windows.
-    - [ ] Has to support multiple EGL contextes
+- [x] Refactor window creation out and make it reusable, also track all created windows.
+    - [x] Has to support multiple EGL surfaces
     - [ ] Support popups for stuff like hover text and so on, maybe, not sure yet.
     - [ ] Also support real popups
 - [ ] Windows support, needs to be done before shipping anything
-- [ ] A bit of cleanup would never hurt
+- [x] A bit of cleanup would never hurt
 
 ## Render
 
 Currently works well enough.
 
-- [ ] Figure out why text unclear -> Font#1
+- [x] Figure out why text unclear -> Font#1
 - [ ] Support multiple OpenGL contextes
 
 ## General

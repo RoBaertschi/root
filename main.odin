@@ -63,6 +63,14 @@ main :: proc() {
 		return .None
 	})
 
+	{
+		W.window_guard(w)
+
+		if !R.init() {
+			os.exit(1)
+		}
+	}
+
 
 	last_time: time.Tick
 
@@ -74,11 +82,9 @@ main :: proc() {
 
 		defer F.frame()
 		W.frame_guard()
-		if W.window_guard(w) {
+		W.window_guard(w)
+		{
 			if !renderer_initalized {
-				if !R.init() {
-					os.exit(1)
-				}
 				renderer_initalized = true
 			}
 
@@ -165,6 +171,7 @@ main :: proc() {
 					log.info(floating_signal.flags)
 					UI.semantic_height_set_next(UI.pixels(50, 1))
 					UI.semantic_width_set_next(UI.pixels(50, 1))
+					UI.background_color_set_next({ 1, 1, 0, 1 })
 					UI.fixed_x_set_next(floating.rect.pos.x + floating_signal.drag_delta.x)
 					UI.fixed_y_set_next(floating.rect.pos.y + floating_signal.drag_delta.y)
 					UI.box_make({ .Floating_X, .Floating_Y, .Draw_Background }, "")

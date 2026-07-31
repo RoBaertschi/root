@@ -250,7 +250,7 @@ init :: proc() -> (ok: bool) {
 	defer if !ok {
 		kbts.FreeFont(&font.kbts_font)
 	}
-	
+
 
 	info: kbts.font_info2_1
 	info.Size = size_of(info)
@@ -623,7 +623,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 			font := _from_id(key.font)
 
 			FT.Set_Pixel_Sizes(font.ft_face, 0, u32(key.font_size))
-			if err := FT.Load_Glyph(font.ft_face, u32(key.id), FT.load_flags({ .RENDER, .NO_HINTING })); err != nil {
+			if err := FT.Load_Glyph(font.ft_face, u32(key.id), FT.load_flags({ .RENDER })); err != nil {
 				log.warnf("could not load and render glyph id %v: %v(%v)", key.id, FT.Error_String(err), err)
 
 				if key.id == 0 {

@@ -1,0 +1,13 @@
+{
+  "bindings": "..",
+  "protocols": {
+    "wayland": {"prefix": "wl_", "package": "wayland", "directory": "..", "filename": "protocol.odin"},
+    "xdg_shell": {"prefix": "xdg_", "package": "xdg", "directory": "../xdg"},
+    "xdg_decoration_unstable_v1": {"prefix": "zxdg_", "package": "xdg", "directory": "../xdg"},
+    "presentation_time": {"prefix": "wp_", "package": "wp", "directory": "../wp"},
+    "linux_dmabuf_v1": {"prefix": "zwp_", "package": "wp", "directory": "../wp"},
+    "tablet_v2": {"prefix": "zwp_", "package": "wp", "directory": "../wp"},
+    "viewporter": {"prefix": "wp_", "package": "wp", "directory": "../wp"},
+    "cursor_shape_v1": {"prefix": "wp_", "package": "wp", "directory": "../wp"}
+  }
+}

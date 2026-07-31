@@ -1,5 +1,6 @@
 package root_draw
 
+import "core:math"
 import B "../base"
 import R "../render"
 import F "../font"
@@ -55,9 +56,13 @@ text_run :: proc(run: ^F.Run, r: B.Rect(f32), text_color: R.Color) {
 	for it := F.glyph_list_iterator(run.glyphs); rglyph in F.glyph_list_iterate(&it) {
 		used_rect := B.rect_cast(rglyph.glyph.used_rect, f32)
 
+		glyph_pos := r.pos + rglyph.pos
+		// glyph_pos.x = math.round(glyph_pos.x)
+		// glyph_pos.y = math.round(glyph_pos.y)
+
 		rect_set_color(rect_with_texture(
 			{
-				pos  = r.pos + rglyph.pos,
+				pos  = glyph_pos,
 				size = used_rect.size,
 			},
 			rglyph.glyph.atlas.texture,

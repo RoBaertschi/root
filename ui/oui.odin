@@ -459,7 +459,7 @@ end :: proc() {
 
 	// Free unused boxes
 
-	for it := box_iterator_make(); b in box_iterate(&it) {
+	for it := xar.iterator(&state.boxes); b in xar.iterate_by_ptr(&it) {
 		if ._Free in b.flags {
 			continue
 		}

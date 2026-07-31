@@ -33,34 +33,11 @@ xdg_surface_listener := XDG.surface_listener{
 
 		XDG.surface_ack_configure(surface, serial)
 		p.xdg_surface_configured = true
-
-		ok := true
-		context = state.ctx
-
-		p.egl_window = WL.egl_window_create(p.surface, **B.array_cast(w.size, i32))
-		if p.egl_window == nil {
-			log.error("could not create egl window")
-			ok = false
-			return
-		}
-		defer if !ok {
-			WL.egl_window_destroy(p.egl_window)
-		}
-
-		p.egl_surface = egl.CreateWindowSurface(state._platform.egl_display, state._platform.egl_config, egl.NativeWindowType(p.egl_window), nil)
-		if p.egl_surface == egl.NO_SURFACE {
-			log.error("could not create egl surface")
-			ok = false
-			return
-		}
-		defer if !ok {
-			egl.DestroySurface(state._platform.egl_display, p.egl_surface)
-		}
 	},
 }
 
 xdg_toplevel_listener := XDG.toplevel_listener{
-	configure = proc "c"(data: rawptr, toplevel: ^XDG.toplevel, width_: i32, height_: i32, states_: WL.array) {
+	configure = proc "c"(data: rawptr, toplevel: ^XDG.toplevel, width_: i32, height_: i32, states_: ^WL.array) {
 		if width_ == 0 && height_ == 0 {
 			return
 		}
@@ -112,7 +89,7 @@ xdg_toplevel_listener := XDG.toplevel_listener{
 		w := cast(^Window)data
 		w.size = { int(width), int(height) }
 	},
-	wm_capabilities = proc "c"(data: rawptr, toplevel: ^XDG.toplevel, capabilities_: WL.array) {
+	wm_capabilities = proc "c"(data: rawptr, toplevel: ^XDG.toplevel, capabilities_: ^WL.array) {
 		w := cast(^Window)data
 
 		caps := ([^]u32)(capabilities_.data)[:capabilities_.size / size_of(u32)]
@@ -181,6 +158,26 @@ _window_platform_init :: proc(w: ^Window) -> (ok: bool) {
 	WL.surface_set_opaque_region(p.surface, region)
 	WL.region_destroy(region)
 
+	p.egl_window = WL.egl_window_create(p.surface, **B.array_cast(w.size, i32))
+	if p.egl_window == nil {
+		log.error("could not create egl window")
+		ok = false
+		return
+	}
+	defer if !ok {
+		WL.egl_window_destroy(p.egl_window)
+	}
+
+	p.egl_surface = egl.CreateWindowSurface(state._platform.egl_display, state._platform.egl_config, egl.NativeWindowType(p.egl_window), nil)
+	if p.egl_surface == egl.NO_SURFACE {
+		log.error("could not create egl surface")
+		ok = false
+		return
+	}
+	defer if !ok {
+		egl.DestroySurface(state._platform.egl_display, p.egl_surface)
+	}
+
 	return true
 }
 
@@ -222,6 +219,14 @@ _window_pointer_pos :: proc(handle: Handle) -> [2]f32 {
 
 _window_swap_buffers :: proc(w: ^Window) {
 	p := &w._platform
+
+	for !p.xdg_surface_configured {
+		if WL.display_dispatch(state._platform.display) == -1 {
+			log.errorf("could not dispatch wayland display in window creation")
+			break
+		}
+	}
+
 
 	if p.xdg_surface_configured {
 		egl.SwapBuffers(state._platform.egl_display, p.egl_surface)
@@ -287,11 +292,10 @@ wl_pointer_listener := WL.pointer_listener{
 		p := &state._platform
 		p.pointer_pos = { WL.fixed_to_f32(surface_x), WL.fixed_to_f32(surface_y) }
 	},
-	button = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, serial: u32, time: u32, button_: u32, button_state_: u32) {
+	button = proc "c"(data: rawptr, pointer: ^WL.pointer, serial: u32, time: u32, button_: u32, button_state: WL.pointer_button_state) {
 		p := &state._platform
 
-		button_state := WL.pointer_button_state(button_state_)
-		button       := Wl_Button(button_)
+		button := Wl_Button(button_)
 
 		@static
 		button_lookup := [Wl_Button]Event_Key{
@@ -360,18 +364,15 @@ wl_pointer_listener := WL.pointer_listener{
 		// 	xdg.toplevel_resize(state.xdg_toplevel, state.seat, serial, .bottom_right)
 		// }
 	},
-	axis = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, time_: u32, axis_: u32, value_: WL.fixed_t) {
-		axis := WL.pointer_axis(axis_)
+	axis = proc "c"(data: rawptr, pointer: ^WL.pointer, time_: u32, axis_: WL.pointer_axis, value_: WL.fixed_t) {
 	},
 	frame = proc "c"(data: rawptr, pointer: ^WL.pointer) {
 		// TODO(robin): dispatch collected data
 	},
-	axis_source = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, axis_source_: u32) {
-		axis_source := WL.pointer_axis_source(axis_source_)
+	axis_source = proc "c"(data: rawptr, pointer: ^WL.pointer, axis_source_: WL.pointer_axis_source) {
 	},
 	axis_stop = proc "c"(data: rawptr, pointer: ^WL.pointer, time_: u32, axis_: WL.pointer_axis) {},
-	axis_discrete = auto_cast proc "c"(data: rawptr, pointer: ^WL.pointer, axis_: u32, discrete_: i32) {
-		axis := WL.pointer_axis(axis_)
+	axis_discrete = proc "c"(data: rawptr, pointer: ^WL.pointer, axis: WL.pointer_axis, discrete_: i32) {
 	},
 }
 
@@ -636,7 +637,7 @@ is_shortcut :: proc(keysym: XKB.keysym_t) -> bool {
 // #endregion
 
 wl_keyboard_listener := WL.keyboard_listener{
-	enter = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, surface_: ^WL.surface, keys_: WL.array) {
+	enter = proc "c"(data: rawptr, keyboard: ^WL.keyboard, serial_: u32, surface_: ^WL.surface, keys_: ^WL.array) {
 		context = state.ctx
 
 		state._platform.keyboard_current_window = window_find_by_surface(surface_)
@@ -760,7 +761,7 @@ wl_keyboard_listener := WL.keyboard_listener{
 }
 
 wl_seat_listener := WL.seat_listener{
-	capabilities = auto_cast proc "c"(data: rawptr, seat: ^WL.seat, capabilities: bit_set[Seat_Capability; i32]) {
+	capabilities = proc "c"(data: rawptr, seat: ^WL.seat, capabilities: WL.seat_capability) {
 		p := &state._platform
 
 		p.seat_capabilities = capabilities
@@ -794,14 +795,6 @@ xdg_wm_base_listener := XDG.wm_base_listener{
 // #region State
 
 
-Seat_Capability :: enum i32 {
-	pointer,
-	keyboard,
-	touch,
-}
-
-Seat_Capabilities :: bit_set[Seat_Capability; i32]
-
 Key :: struct {
 	keysym: XKB.keysym_t,
 	key:    Event_Key,
@@ -819,7 +812,7 @@ _State_Platform :: struct {
 	shm:                     ^WL.shm,
 	xdg_wm_base:             ^XDG.wm_base,
 	seat:                    ^WL.seat,
-	seat_capabilities:       Seat_Capabilities,
+	seat_capabilities:       WL.seat_capability,
 
 	pointer:                 Maybe(^WL.pointer),
 	pointer_pos:             [2]f32,
@@ -943,7 +936,7 @@ _state_platform_init :: proc(s: ^State) -> (ok: bool) {
 		egl.SURFACE_TYPE,    egl.WINDOW_BIT,
 		egl.RENDERABLE_TYPE, egl.OPENGL_BIT,
 		egl.NONE,
-}
+	}
 
 	num_config: i32
 	if !egl.ChooseConfig(p.egl_display, &attributes[0], &p.egl_config, 1, &num_config) {
@@ -983,10 +976,6 @@ _state_platform_init :: proc(s: ^State) -> (ok: bool) {
 _set_current :: proc(w: ^Window) -> bool {
 	read, draw := egl.NO_SURFACE, egl.NO_SURFACE
 	ctx        := egl.NO_CONTEXT
-
-	if w != nil && !w._platform.xdg_surface_configured {
-		return false
-	}
 
 	if w != nil {
 		read = w._platform.egl_surface
