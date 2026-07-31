@@ -45,6 +45,16 @@ Currently works well enough.
 - [x] Figure out why text unclear -> Font#1
 - [ ] Support multiple OpenGL contextes
 
+## File Interface (NEW)
+
+We need some uniform file interface for managing files. These files should come from the local file system and some few files should be embedable (and also hot-reloadable via access over the file system).
+In the future we would want to support different kind of remote files, like WSL, SSH or other. This means, the system should be able to support
+a loading state, some form of streaming, maybe local cache for large files, some metadata gathering and most importantly, a namespace system.
+
+### Namespace System
+The editor needs to be able to handle files from multiple sources at the **same** time. For example, it should be able to load the config file from windows
+while still connected to a WSL project. This boils down to a key to implementation+mount point. So the current project is one of those mount points. The local system is one, WSL is one and so on.
+
 ## General
 
 - [ ] Maybe figure out some sort of panel system.
