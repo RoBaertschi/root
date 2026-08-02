@@ -28,7 +28,7 @@ STACKS :: [?]Stack{
 	{"border_thickness", "f32",            "1"},
 	{"corner_radius",    "f32",            "0"},
 	{"font_size",        "u16",            "16"},
-	{"font",             "F.ID",           "F.DEFAULT_ID"},
+	{"font",             "F.Key",          "F.ZERO_KEY"},
 	{"text_padding",     "f32",            "0"},
 	{"text_alignment",   "Text_Alignment", "Text_Alignment.Left"},
 }

@@ -15,7 +15,7 @@ Stacks :: struct {
 	border_thickness: Stack(f32),
 	corner_radius: Stack(f32),
 	font_size: Stack(u16),
-	font: Stack(F.ID),
+	font: Stack(F.Key),
 	text_padding: Stack(f32),
 	text_alignment: Stack(Text_Alignment),
 }
@@ -49,7 +49,7 @@ init_stacks :: proc() {
 	stack_init(&state.stacks.border_thickness, 1)
 	stack_init(&state.stacks.corner_radius, 0)
 	stack_init(&state.stacks.font_size, 16)
-	stack_init(&state.stacks.font, F.DEFAULT_ID)
+	stack_init(&state.stacks.font, F.ZERO_KEY)
 	stack_init(&state.stacks.text_padding, 0)
 	stack_init(&state.stacks.text_alignment, Text_Alignment.Left)
 }
@@ -198,13 +198,13 @@ _font_size_guard_end :: proc(v: u16, loc: runtime.Source_Code_Location) {
 //-font_size
 
 //+font
-font_set_next :: proc(v: F.ID) { stack_set_next(&state.stacks.font, v) }
-font_push :: proc(v: F.ID) { stack_push(&state.stacks.font, v) }
-font_pop :: proc() -> F.ID { return stack_pop(&state.stacks.font) }
-font_top :: proc() -> F.ID { return stack_top(&state.stacks.font) }
+font_set_next :: proc(v: F.Key) { stack_set_next(&state.stacks.font, v) }
+font_push :: proc(v: F.Key) { stack_push(&state.stacks.font, v) }
+font_pop :: proc() -> F.Key { return stack_pop(&state.stacks.font) }
+font_top :: proc() -> F.Key { return stack_top(&state.stacks.font) }
 @(deferred_in=_font_guard_end)
-font_guard :: proc(v: F.ID, loc := #caller_location) { stack_push(&state.stacks.font, v) }
-_font_guard_end :: proc(v: F.ID, loc: runtime.Source_Code_Location) {
+font_guard :: proc(v: F.Key, loc := #caller_location) { stack_push(&state.stacks.font, v) }
+_font_guard_end :: proc(v: F.Key, loc: runtime.Source_Code_Location) {
 	old := font_pop()
 	assert(old == v, loc = loc)
 }

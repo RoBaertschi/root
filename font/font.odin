@@ -22,11 +22,9 @@ import FT "../freetype"
 
 import kbts "vendor:kb_text_shape"
 
-ID :: distinct u128
+Key :: distinct u128
 
-// TODO(robin): consider special casing path="", face_index=0 to map top DEFAULT_ID
-
-DEFAULT_ID :: ID(0)
+ZERO_KEY :: Key(0)
 
 Font_Flag :: enum {
 	Bold,
@@ -53,7 +51,7 @@ Font :: struct {
 }
 
 Glyph_Key :: struct {
-	font:      ID,
+	font:      Key,
 	font_size: u16,
 	id:        u16,
 }
@@ -106,7 +104,7 @@ Grapheme_List :: struct {
 
 Run_Key :: struct {
 	s:         string,
-	font:      ID,
+	font:      Key,
 	font_size: u16,
 }
 
@@ -231,7 +229,7 @@ init :: proc() -> (ok: bool) {
 	INITIAL_RUN_MAP_SIZE :: 256
 	state.run_map = B.arena_make(arena(), []^Run, INITIAL_RUN_MAP_SIZE)
 
-	BUCKET_INDEX :: u128(DEFAULT_ID) % u128(INITIAL_FONT_MAP_SIZE)
+	BUCKET_INDEX :: u128(ZERO_KEY) % u128(INITIAL_FONT_MAP_SIZE)
 
 	font := B.arena_new(arena(), Font)
 
@@ -269,15 +267,15 @@ frame :: proc() {
 }
 
 // NOTE: internal, invalid with INVALID_ID
-_from_id :: proc(id: ID) -> ^Font {
+_from_key :: proc(key: Key) -> ^Font {
 	B.perf_scoped()
 
-	hash := u128(id)
+	hash := u128(key)
 	font := state.font_map[hash % u128(len(state.font_map))]
 	for font != nil {
 		if font.hash == hash {
 			if font.error != nil {
-				return _from_id(DEFAULT_ID)
+				return _from_key(ZERO_KEY)
 			}
 
 			return font
@@ -286,11 +284,11 @@ _from_id :: proc(id: ID) -> ^Font {
 		font = font.hash_next
 	}
 
-	return _from_id(DEFAULT_ID)
+	return _from_key(ZERO_KEY)
 }
 
 // NOTE: This was written with the idea of immediate mode and to not report duplicate errors
-_push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: int) -> (id: ID) {
+_push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: int) -> (key: Key) {
 	font: ^Font
 	if bucket^ != nil {
 		font = bucket^
@@ -320,7 +318,7 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 				log.errorf("could not read font file %q: %v", font_path, err)
 			}
 			font.error = err
-			return DEFAULT_ID
+			return ZERO_KEY
 		}
 	}
 
@@ -329,7 +327,7 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 			log.errorf("could not create FreeType face for font %q: %v(%v)", font_path, FT.Error_String(ft_err), ft_err)
 		}
 		font.error = ft_err
-		return DEFAULT_ID
+		return ZERO_KEY
 	}
 
 	font.kbts_font = kbts.FontFromMemory(font.data, c.int(font.face_index), kbts.AllocatorFromOdinAllocator(&state._allocator))
@@ -338,7 +336,7 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 			log.errorf("could not create kbts font for %q: %v", font_path, font.kbts_font.Error)
 		}
 		font.error = font.kbts_font.Error
-		return DEFAULT_ID
+		return ZERO_KEY
 	}
 
 	info: kbts.font_info2_1
@@ -347,10 +345,10 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 	font.units_per_em = int(info.UnitsPerEm)
 
 	font.error = nil
-	return ID(hash)
+	return Key(hash)
 }
 
-from_path :: proc(path: string, face_index: int) -> ID {
+from_path :: proc(path: string, face_index: int) -> Key {
 	face_index := face_index
 
 	context.logger = state.logger
@@ -370,7 +368,7 @@ from_path :: proc(path: string, face_index: int) -> ID {
 		font_path, err := os.get_absolute_path(path, temp)
 		if err != nil {
 			log.errorf("could not get absolute path for font path %q: %v", path, err)
-			return DEFAULT_ID
+			return ZERO_KEY
 		}
 	} else {
 		font_path := path
@@ -383,7 +381,7 @@ from_path :: proc(path: string, face_index: int) -> ID {
 
 	hash := xxhash.XXH3_128_digest(&hash_state)
 	if hash == 0 {
-		// ID's of value 0 are not valid and should never correspond to an actual Font
+		// Key's of value 0 are not valid and should never correspond to an actual Font
 		hash = 1
 	}
 
@@ -402,14 +400,14 @@ from_path :: proc(path: string, face_index: int) -> ID {
 				return _push_font(bucket, hash, font_path, face_index)
 			}
 
-			return ID(bucket^.hash)
+			return Key(bucket^.hash)
 		}
 
 		bucket = &bucket^.hash_next
 	}
 }
 
-get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
+get_run :: proc(font_id: Key, font_size: u16, text: string) -> ^Run {
 	font_id   := font_id
 	font_size := font_size
 
@@ -483,8 +481,8 @@ get_run :: proc(font_id: ID, font_size: u16, text: string) -> ^Run {
 	}
 }
 
-shape_text :: proc(font_id: ID, font_size: u16, text: string) -> (gl: Glyph_List, grl: Grapheme_List, visible: B.Rect(f32), layout: [2]f32) {
-	font := _from_id(font_id)
+shape_text :: proc(font_id: Key, font_size: u16, text: string) -> (gl: Glyph_List, grl: Grapheme_List, visible: B.Rect(f32), layout: [2]f32) {
+	font := _from_key(font_id)
 
 	if text == "" {
 		// NOTE: kbts.ShapeUtf8 seems to crash on an empty string, I don't know why but it does.
@@ -620,7 +618,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 	bucket := &state.glyph_map[uint(h) % len(state.font_map)]
 	for  {
 		if bucket^ == nil {
-			font := _from_id(key.font)
+			font := _from_key(key.font)
 
 			FT.Set_Pixel_Sizes(font.ft_face, 0, u32(key.font_size))
 			if err := FT.Load_Glyph(font.ft_face, u32(key.id), FT.load_flags({ .RENDER })); err != nil {

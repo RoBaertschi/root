@@ -559,7 +559,7 @@ Box_Attachment_Text :: struct {
 	run:            ^F.Run,
 	color:          Color,
 	font_size:      u16,
-	font:           F.ID,
+	font:           F.Key,
 	content:        string,
 	text_alignment: Text_Alignment,
 	text_padding:   f32,
