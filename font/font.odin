@@ -43,7 +43,7 @@ Font :: struct {
 	path:       string,
 	face_index: int,
 
-	data:         []u8 `fmt: "-"`,
+	data:         []u8 `fmt:"-"`,
 	flags:        Font_Flags,
 	ft_face:      ^FT.Face,
 	kbts_font:    kbts.font,

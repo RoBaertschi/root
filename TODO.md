@@ -25,7 +25,7 @@ The UI still needs a lot of work.
 Quite nice already, works for my use case.
 
 - [x] Figure out why so unclear
-- [ ] Rename ID -> Key/Handle
+- [x] Rename ID -> Key/Handle
 
 ## Window
 
@@ -54,6 +54,23 @@ a loading state, some form of streaming, maybe local cache for large files, some
 ### Namespace System
 The editor needs to be able to handle files from multiple sources at the **same** time. For example, it should be able to load the config file from windows
 while still connected to a WSL project. This boils down to a key to implementation+mount point. So the current project is one of those mount points. The local system is one, WSL is one and so on.
+
+```odin
+import "../files"
+
+main :: proc() {
+    project_directory: string
+    current_file:      string
+
+    project_namespace := files.namespace("Project", files.local_directory(project_directory))
+
+
+    loop: for {
+        file := files.from_namespace(project_namespace, current_file)
+    }
+}
+
+```
 
 ## General
 
