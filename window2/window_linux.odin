@@ -337,12 +337,14 @@ wl_pointer_listener := WL.pointer_listener{
 					serial,
 					wl_resize_lookup[result],
 				)
+				return
 			case .Draggable:
 				XDG.toplevel_move(
 					w._platform.xdg_toplevel,
 					state._platform.seat,
 					serial,
 				)
+				return
 			}
 		}
 

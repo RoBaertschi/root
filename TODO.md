@@ -19,6 +19,18 @@ The UI still needs a lot of work.
 - [ ] Polish
 - [ ] More default widgets
     - [ ] Well working text editing widget, think about BiDi and such.
+        - [ ] Requires support for focusing elements.
+
+### Text Edit
+
+The `UI.Signal` should store a text editing action, that was applied to the current field. Also, it should expose all input utf-8 as a string. This requires focus support for widgets. Also it would be cool, if we could add keyboard traversal.
+
+### Box Focus
+
+Boxes that are focused should support keyboard input that emulates mouse input to some extend.
+
+- Probably the right call is to store some sort of focus_key, which indicates what element is focused.
+- On click, focus should be changed to the clicked element, if supported.
 
 ## Font
 
@@ -43,7 +55,7 @@ Needs a general refactor for multiple, nice to have, features.
 Currently works well enough.
 
 - [x] Figure out why text unclear -> Font#1
-- [ ] Support multiple OpenGL contextes
+- [ ] _Support multiple OpenGL contextes_
 
 ## File Interface (NEW)
 
