@@ -5,7 +5,7 @@ import "core:mem"
 
 // The `new` procedure allocates memory for a type `T` from a `base.Arena`. The second argument is a type,
 // not a value, and the value return is a pointer to a newly allocated value of that type using the specified allocator.
-new :: proc(a: ^Arena, $T: typeid, loc := #caller_location) -> (ptr: ^T, err: mem.Allocator_Error) {
+new :: proc(a: ^Arena, $T: typeid, loc := #caller_location) -> (ptr: ^T) {
 	return new_aligned(a, T, align_of(T), loc)
 }
 

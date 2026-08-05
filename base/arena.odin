@@ -1,5 +1,6 @@
 package root_base
 
+import "core:c/libc"
 import "core:fmt"
 import "base:sanitizer"
 import "core:mem/virtual"
@@ -180,6 +181,29 @@ arena_clear :: proc(a: ^Arena) {
 	arena_pop_to(a, 0)
 }
 
+Arena_Temp :: struct {
+	arena: ^Arena, 
+	pos:   uint,
+}
+
+arena_temp_start :: proc(a: ^Arena) -> Arena_Temp {
+	return {
+		arena = a,
+		pos   = a.curr.base_pos + a.curr.used,
+	}
+}
+
+arena_temp_end :: proc(temp: Arena_Temp, loc := #caller_location) {
+	arena_pop_to(temp.arena, temp.pos, loc = loc)
+}
+
+@(deferred_out=arena_temp_end)
+arena_guard :: proc(a: ^Arena, loc := #caller_location) -> (temp: Arena_Temp, out_loc: runtime.Source_Code_Location) {
+	temp    = arena_temp_start(a)
+	out_loc = loc
+	return
+}
+
 // Tests
 
 import "core:testing"
@@ -217,3 +241,37 @@ arena_clear_test :: proc(t: ^testing.T) {
 	testing.expect_value(t, arena.curr, arena)
 	testing.expect_value(t, arena.used, size_of(Arena))
 }
+
+@test
+arena_guard_test :: proc(t: ^testing.T) {
+	arena := arena_alloc()
+	defer arena_destroy(arena)
+
+	{
+		arena_guard(arena)
+
+		i := new(arena, int)
+		i^ = 202020
+	}
+
+	testing.expect_value(t, arena.used, size_of(Arena))
+}
+
+// NOTE: for testing only
+//
+// @(test, disabled=.Address in ODIN_SANITIZER_FLAGS)
+// arena_address_sanitation_test :: proc(t: ^testing.T) {
+// 	testing.expect_signal(t, libc.SIGABRT)
+// 	arena := arena_alloc()
+// 	defer arena_destroy(arena)
+//
+// 	i: ^int
+// 	{
+// 		arena_guard(arena)
+//
+// 		i = new(arena, int)
+// 		i^ = 202020
+// 	}
+//
+// 	i^ = 3
+// }
