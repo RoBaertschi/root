@@ -87,7 +87,7 @@ TEMP_ALLOCATOR_GUARD_END :: proc(temp: Temp_Allocator) {
 
 @(deferred_out=TEMP_ALLOCATOR_GUARD_END)
 TEMP_ALLOCATOR_GUARD :: #force_inline proc(collisions: ..runtime.Allocator, loc := #caller_location) -> Temp_Allocator {
-	assert(len(collisions) <= MAX_TEMP_ARENA_COLLISIONS, "Maximum collision count exceeded. MAX_TEMP_ARENA_COUNT must be increased!")
+	_ = assert(len(collisions) <= MAX_TEMP_ARENA_COLLISIONS, "Maximum collision count exceeded. MAX_TEMP_ARENA_COUNT must be increased!")
 	good_arena: ^virtual.Arena
 	for i in 0..<MAX_TEMP_ARENA_COUNT {
 		good_arena = &thread_ctx.temp_arenas[i]
@@ -100,7 +100,7 @@ TEMP_ALLOCATOR_GUARD :: #force_inline proc(collisions: ..runtime.Allocator, loc 
 			break
 		}
 	}
-	assert(good_arena != nil)
+	_ = assert(good_arena != nil)
 	tmp := virtual.arena_temp_begin(good_arena, loc)
 	return { good_arena, virtual.arena_allocator(good_arena), tmp, loc }
 }

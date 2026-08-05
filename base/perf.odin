@@ -25,7 +25,7 @@ PERF_ENABLED :: #config(PERF, false)
 
 _perf_pop_deferred :: proc(procedure: runtime.Source_Code_Location) {
 	node := perf_pop()
-	assert(node.location == procedure)
+	_ = assert(node.location == procedure)
 	diff := time.tick_diff(node.start, time.tick_now())
 	fmt.printfln("%v:%v took %v", procedure.file_path, procedure.procedure, diff)
 }
