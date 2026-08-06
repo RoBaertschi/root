@@ -1,10 +1,10 @@
 package root_render
 
 import "core:log"
-import "core:container/xar"
 import "core:math/linalg"
+import "core:container/xar"
+
 import "base:runtime"
-import "core:mem/virtual"
 
 import gl "vendor:OpenGL"
 
@@ -26,8 +26,8 @@ Rect :: struct {
 Color :: [4]f32
 
 State :: struct {
-	arena:       virtual.Arena,
-	frame_arena: virtual.Arena,
+	arena:       ^B.Arena,
+	frame_arena: ^B.Arena,
 	logger:      runtime.Logger,
 
 	textures:    B.Handle_Map(Texture, Texture_Handle),
@@ -54,18 +54,18 @@ nil_texture: Texture_Handle
 @private
 state: ^State
 
-arena :: proc() -> ^virtual.Arena {
-	return &state.arena
+arena :: proc() -> ^B.Arena {
+	return state.arena
 }
 
 @private
-frame_arena :: proc() -> ^virtual.Arena {
-	return &state.frame_arena
+frame_arena :: proc() -> ^B.Arena {
+	return state.frame_arena
 }
 
 @private
 state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(arena())
+	return B.arena_allocator(arena())
 }
 
 VERT_SHADER_SOURCE :: #load("vertex.glsl", string)
@@ -73,7 +73,9 @@ FRAG_SHADER_SOURCE :: #load("fragment.glsl", string)
 
 @(require_results)
 init :: proc() -> (ok: bool) {
-	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
+	state = B.arena_bootstrap_new(State, "arena")
+
+	state.frame_arena = B.arena_alloc()
 
 	state.logger   = log.create_console_logger(ident = "RENDER", allocator = state_allocator())
 	context.logger = state.logger
@@ -149,7 +151,7 @@ fini :: proc() {
 		B.hm_remove(&state.textures, handle)
 	}
 
-	B.arena_destroy_bootstrapped(&state.arena)
+	B.arena_destroy(state.arena)
 }
 
 begin_frame :: proc(window_size: [2]int) {
@@ -160,7 +162,8 @@ begin_frame :: proc(window_size: [2]int) {
 	xar.clear(&state.clips)
 	_, _ = xar.push_back(&state.clips, B.Rect(int){ pos = {}, size = window_size })
 	batch_list_clear(&state.batches)
-	virtual.arena_free_all(&state.frame_arena)
+
+	B.arena_clear(state.frame_arena)
 }
 
 end_frame :: proc() {

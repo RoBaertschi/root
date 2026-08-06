@@ -38,7 +38,7 @@ Event_List :: struct {
 }
 
 event_list_push :: proc(el: ^Event_List, event: Event) {
-	node := B.arena_new_clone(build_arena(), Event_Node{ event = event })
+	node := B.arena_push(build_arena(), Event_Node{ event = event })
 	list.push_back(&el.nodes, &node.node)
 }
 

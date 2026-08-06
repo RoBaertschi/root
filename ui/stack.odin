@@ -1,7 +1,6 @@
 package oui
 
 import "base:intrinsics"
-import "base:runtime"
 
 import B "../base"
 
@@ -104,7 +103,7 @@ stack_push :: proc(s: ^Stack($T), value: T) {
 		node   = s.free
 		s.free = node.next
 	} else {
-		node = B.arena_new(build_arena(), Stack_Node(T))
+		node = B.arena_push(build_arena(), Stack_Node(T))
 	}
 
 	node.value = value

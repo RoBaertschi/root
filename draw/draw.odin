@@ -1,6 +1,5 @@
 package root_draw
 
-import "core:math"
 import B "../base"
 import R "../render"
 import F "../font"

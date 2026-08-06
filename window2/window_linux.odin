@@ -7,7 +7,6 @@ import "core:log"
 import "core:time"
 import "core:c"
 import "core:sys/posix"
-import "core:mem/virtual"
 
 import WL "../wayland"
 import XDG "../wayland/xdg"
@@ -387,7 +386,7 @@ keysym_push :: proc(key: Key) {
 		platform.free_keys = node.next
 		node^              = {}
 	} else {
-		node = B.arena_new(arena(), Key_Node)
+		node = B.arena_push(arena(), Key_Node)
 	}
 
 	node.key              = key
@@ -565,13 +564,13 @@ keycode_pressed :: proc(keycode: XKB.keycode_t, serial: u32) {
 		temp := B.TEMP_ALLOCATOR_GUARD()
 		result := ""
 
-		key_get_utf8 :: proc(keycode: XKB.keycode_t, arena: ^virtual.Arena) -> string {
+		key_get_utf8 :: proc(keycode: XKB.keycode_t, arena: ^B.Arena) -> string {
 			result_size := XKB.state_key_get_utf8(platform.xkb_state, keycode, nil, 0)
 			if result_size <= 0 {
 				return ""
 			}
 
-			result_data := B.arena_make(arena, []u8, result_size + 1)
+			result_data := B.arena_push_make(arena, []u8, result_size + 1)
 			XKB.state_key_get_utf8(platform.xkb_state, keycode, raw_data(result_data), len(result_data))
 			return string(cstring(raw_data(result_data)))
 		}
@@ -584,7 +583,7 @@ keycode_pressed :: proc(keycode: XKB.keycode_t, serial: u32) {
 			case .COMPOSING: // do nothing
 			case .COMPOSED:
 				result_size := XKB.compose_state_get_utf8(platform.xkb_compose_state, nil, 0)
-				result_data := B.arena_make(temp.arena, []u8, result_size + 1)
+				result_data := B.arena_push_make(temp.arena, []u8, result_size + 1)
 				XKB.compose_state_get_utf8(platform.xkb_compose_state, raw_data(result_data), len(result_data))
 				XKB.compose_state_reset(platform.xkb_compose_state)
 

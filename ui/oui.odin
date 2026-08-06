@@ -3,11 +3,9 @@ package oui
 
 // TODO(robin): figure the allocation error story out
 
-import "core:sync"
 import "core:math"
 import "core:strings"
 import "base:runtime"
-import "core:mem/virtual"
 import "core:hash/xxhash"
 import "core:container/xar"
 
@@ -17,8 +15,6 @@ import B "../base"
 import R "../render"
 
 // Based on https://www.dgtlgrove.com/p/ui-part-3-the-widget-building-language
-
-Arena :: virtual.Arena
 
 Rect  :: B.Rect(f32)
 Color :: R.Color
@@ -32,9 +28,9 @@ Mouse_Button :: enum {
 }
 
 State :: struct {
-	perm_arena:      Arena,
-	drag_data_arena: Arena,
-	arenas:          [2]Arena,
+	perm_arena:      ^B.Arena,
+	drag_data_arena: ^B.Arena,
+	arenas:          [2]^B.Arena,
 
 	root:    ^Box,
 	current: ^Box,
@@ -69,43 +65,44 @@ State :: struct {
 @private
 state: ^State
 
-build_arena :: proc() -> ^Arena {
-	return &state.arenas[state.current_frame % 2]
+build_arena :: proc() -> ^B.Arena {
+	return state.arenas[state.current_frame % 2]
 }
 
 build_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(build_arena())
+	return B.arena_allocator(build_arena())
 }
 
-perm_arena :: proc() -> ^Arena {
-	return &state.perm_arena
+perm_arena :: proc() -> ^B.Arena {
+	return state.perm_arena
 }
 
 perm_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(perm_arena())
+	return B.arena_allocator(perm_arena())
 }
 
 init :: proc() {
-	state, _ = virtual.arena_growing_bootstrap_new(State, "perm_arena")
+	state = B.arena_bootstrap_new(State, "perm_arena")
 
-	_ = virtual.arena_init_static(&state.drag_data_arena)
+	state.drag_data_arena = B.arena_alloc(flags = { .No_Growing })
 
 	for &arena in state.arenas {
-		_ = virtual.arena_init_growing(&arena)
+		arena = B.arena_alloc()
 	}
 
 	xar.init(&state.boxes, perm_allocator())
 
 	INITIAL_BOX_MAP_SIZE :: runtime.Kilobyte * 4
-	state.box_map = B.arena_make(perm_arena(), []^Box, INITIAL_BOX_MAP_SIZE)
+	state.box_map = B.arena_push_make(perm_arena(), []^Box, INITIAL_BOX_MAP_SIZE)
 }
 
 fini :: proc() {
 	for &arena in state.arenas {
-		virtual.arena_destroy(&arena)
+		B.arena_destroy(arena)
+		arena = nil
 	}
 
-	B.arena_destroy_bootstrapped(&state.perm_arena)
+	B.arena_destroy(state.perm_arena)
 	state = nil
 }
 
@@ -221,7 +218,7 @@ Begin_Description :: struct {
 
 begin :: proc(desc: Begin_Description) {
 	state.current_frame += 1
-	virtual.arena_free_all(build_arena())
+	B.arena_clear(build_arena())
 
 	state.root, state.current = nil, nil
 
@@ -750,7 +747,7 @@ box_attach_text :: proc(b: ^Box, text: string) {
 	cloned_text := strings.clone(text, build_allocator())
 
 	if b.att_text == nil {
-		b.att_text = B.arena_new(build_arena(), Box_Attachment_Text)
+		b.att_text = B.arena_push(build_arena(), Box_Attachment_Text)
 	}
 
 	b.att_text.content        = cloned_text
@@ -764,7 +761,7 @@ box_attach_text :: proc(b: ^Box, text: string) {
 
 box_attach_rect :: proc(b: ^Box) {
 	if b.att_rect == nil {
-		b.att_rect = B.arena_new(build_arena(), Box_Attachment_Rect)
+		b.att_rect = B.arena_push(build_arena(), Box_Attachment_Rect)
 	}
 
 	b.att_rect.border_color     = border_color_top()
@@ -775,7 +772,7 @@ box_attach_rect :: proc(b: ^Box) {
 
 box_attach_draw :: proc(b: ^Box, procedure: Custom_Draw_Proc, user_data: rawptr) {
 	if b.att_draw == nil {
-		b.att_draw = B.arena_new(build_arena(), Box_Attachment_Draw)
+		b.att_draw = B.arena_push(build_arena(), Box_Attachment_Draw)
 	}
 
 	b.att_draw^ = {

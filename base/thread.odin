@@ -1,16 +1,16 @@
 package root_base
 
+import "core:thread"
 
 import "core:sync"
 import "base:runtime"
-import "core:mem/virtual"
 
 Thread_Ctx :: struct {
 	idx:          int,
 	thread_count: int,
 	barrier:      ^sync.Barrier,
-	perm_arena:   ^virtual.Arena,
-	temp_arenas:  [MAX_TEMP_ARENA_COUNT]virtual.Arena,
+	perm_arena:   ^Arena,
+	temp_arenas:  [MAX_TEMP_ARENA_COUNT]^Arena,
 }
 
 lane_idx :: proc() -> int {
@@ -69,30 +69,33 @@ temp_allocator_fini :: proc "contextless" () {
 	context = runtime.default_context()
 
 	for &arena in thread_ctx.temp_arenas {
-		virtual.arena_destroy(&arena)
+		if arena != nil {
+			arena_destroy(arena)
+			arena = nil
+		}
 	}
 	thread_ctx.temp_arenas = {}
 }
 
 Temp_Allocator :: struct {
-	using arena: ^virtual.Arena,
-	using allocator: runtime.Allocator,
-	tmp: virtual.Arena_Temp,
+	using arena: ^Arena,
+	#subtype allocator: runtime.Allocator,
+	tmp: Arena_Temp,
 	loc: runtime.Source_Code_Location,
 }
 
 TEMP_ALLOCATOR_GUARD_END :: proc(temp: Temp_Allocator) {
-	virtual.arena_temp_end(temp.tmp, temp.loc)
+	arena_temp_end(temp.tmp, temp.loc)
 }
 
 @(deferred_out=TEMP_ALLOCATOR_GUARD_END)
 TEMP_ALLOCATOR_GUARD :: #force_inline proc(collisions: ..runtime.Allocator, loc := #caller_location) -> Temp_Allocator {
 	_ = assert(len(collisions) <= MAX_TEMP_ARENA_COLLISIONS, "Maximum collision count exceeded. MAX_TEMP_ARENA_COUNT must be increased!")
-	good_arena: ^virtual.Arena
+	good_arena: ^^Arena
 	for i in 0..<MAX_TEMP_ARENA_COUNT {
 		good_arena = &thread_ctx.temp_arenas[i]
 		for c in collisions {
-			if good_arena == c.data {
+			if good_arena^ == c.data {
 				good_arena = nil
 			}
 		}
@@ -100,19 +103,24 @@ TEMP_ALLOCATOR_GUARD :: #force_inline proc(collisions: ..runtime.Allocator, loc 
 			break
 		}
 	}
-	_ = assert(good_arena != nil)
-	tmp := virtual.arena_temp_begin(good_arena, loc)
-	return { good_arena, virtual.arena_allocator(good_arena), tmp, loc }
+
+	if good_arena^ == nil {
+		good_arena^ = arena_alloc()
+	}
+
+	_ = assert(good_arena^ != nil)
+	tmp := arena_temp_begin(good_arena^)
+	return { good_arena^, arena_allocator(good_arena^), tmp, loc }
 }
 
-temp_allocator_begin :: virtual.arena_temp_begin
-	temp_allocator_end :: virtual.arena_temp_end
+temp_allocator_begin :: arena_temp_begin
+	temp_allocator_end :: arena_temp_end
 @(deferred_out=_temp_allocator_end)
-temp_allocator_scope :: proc(tmp: Temp_Allocator) -> (virtual.Arena_Temp) {
+temp_allocator_scope :: proc(tmp: Temp_Allocator) -> (Arena_Temp) {
 	return temp_allocator_begin(tmp.arena)
 }
 @(private="file")
-_temp_allocator_end :: proc(tmp: virtual.Arena_Temp) {
+_temp_allocator_end :: proc(tmp: Arena_Temp) {
 	temp_allocator_end(tmp)
 }
 

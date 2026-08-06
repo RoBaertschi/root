@@ -3,7 +3,6 @@ package root_window2
 import "core:log"
 import "core:strings"
 import "base:runtime"
-import "core:mem/virtual"
 import "core:container/intrusive/list"
 
 import B "../base"
@@ -182,7 +181,7 @@ event_list_push :: proc(el: ^Event_List, ev: Event) -> (ev_node: ^Event_Node) {
 	if node := list.pop_back(&el.free_list); node != nil {
 		ev_node = container_of(node, Event_Node, "node")
 	} else {
-		ev_node = B.arena_new(arena(), Event_Node)
+		ev_node = B.arena_push(arena(), Event_Node)
 	}
 	ev_node.event = ev
 	list.push_back(&el.events, ev_node)
@@ -245,7 +244,7 @@ NIL_WINDOW :: Handle {}
 Window :: struct {
 	handle: Handle,
 	node:   list.Node,
-	arena:  virtual.Arena,
+	arena:  ^B.Arena,
 	flags:  Window_Flags,
 	title:  string,
 	size:   [2]int,
@@ -256,13 +255,13 @@ Window :: struct {
 }
 
 @private
-window_arena :: proc(w: ^Window) -> ^virtual.Arena {
-	return &w.arena
+window_arena :: proc(w: ^Window) -> ^B.Arena {
+	return w.arena
 }
 
 @private
 window_allocator :: proc(w: ^Window) -> runtime.Allocator {
-	return virtual.arena_allocator(window_arena(w))
+	return B.arena_allocator(window_arena(w))
 }
 
 window_from_handle :: proc(handle: Handle) -> ^Window {
@@ -282,16 +281,13 @@ window_make :: proc(size: [2]int, title: string) -> (handle: Handle) {
 
 	w := window_from_handle(handle)
 
-	if err := virtual.arena_init_growing(&w.arena); err != nil {
-		_, _ = B.hm_remove(&state.window_map, handle)
-		return NIL_WINDOW
-	}
+	w.arena = B.arena_alloc(reserved = runtime.Megabyte * 4)
 
 	w.size = size
 	w.title = strings.clone(title, window_allocator(w))
 
 	if !_window_platform_init(w) {
-		virtual.arena_destroy(&w.arena)
+		B.arena_destroy(w.arena)
 		_, _ = B.hm_remove(&state.window_map, handle)
 		return NIL_WINDOW
 	}
@@ -327,7 +323,7 @@ window_destroy :: proc(handle: Handle) {
 
 	list.remove(&state.windows, &w.node)
 	_window_platform_fini(w)
-	virtual.arena_destroy(&w.arena)
+	B.arena_destroy(w.arena)
 }
 
 window_flags :: proc(handle: Handle) -> Window_Flags {
@@ -399,7 +395,7 @@ window_show_decoration_menu :: proc(handle: Handle, pos: [2]f32, key: Interactio
 // #region State
 
 State :: struct {
-	arena:      virtual.Arena,
+	arena:      ^B.Arena,
 	ctx:        runtime.Context,
 	window_map: B.Handle_Map(Window, Handle),
 	windows:    list.List,
@@ -414,17 +410,17 @@ State :: struct {
 state: ^State
 
 @private
-arena :: proc() -> ^virtual.Arena {
-	return &state.arena
+arena :: proc() -> ^B.Arena {
+	return state.arena
 }
 
 @private
 state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(arena())
+	return B.arena_allocator(arena())
 }
 
 init :: proc() -> bool {
-	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
+	state = B.arena_bootstrap_new(State, "arena")
 
 	context.logger = log.create_console_logger(ident = "WINDOW", allocator = state_allocator())
 

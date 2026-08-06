@@ -12,7 +12,6 @@ import "core:hash"
 import "core:slice"
 import "core:strings"
 import "core:math/bits"
-import "core:mem/virtual"
 import "core:math/linalg"
 import "core:hash/xxhash"
 
@@ -144,7 +143,7 @@ State :: struct {
 	kbts_ctx:   ^kbts.shape_context,
 	_allocator: runtime.Allocator,
 
-	arena:      virtual.Arena,
+	arena:      ^B.Arena,
 	font_map:   []^Font,
 
 	glyph_map:     []^Glyph,
@@ -157,26 +156,26 @@ State :: struct {
 	run_lru:               list.List,
 	run_lru_len:           int,
 	run_lru_current_frame: int,
-	run_string_arenas:     [2]virtual.Arena,
+	run_string_arenas:     [2]^B.Arena,
 }
 
 @private
 lru_clone_string :: proc(s: string) -> string {
 	return strings.clone(
 		s,
-		allocator = virtual.arena_allocator(
-			&state.run_string_arenas[state.run_lru_current_frame % 2],
+		allocator = B.arena_allocator(
+			state.run_string_arenas[state.run_lru_current_frame % 2],
 		),
 	)
 }
 
-arena :: proc() -> ^virtual.Arena {
-	return &state.arena
+arena :: proc() -> ^B.Arena {
+	return state.arena
 }
 
 @private
 state_allocator :: proc() -> runtime.Allocator {
-	return virtual.arena_allocator(arena())
+	return B.arena_allocator(arena())
 }
 
 state: ^State
@@ -196,7 +195,11 @@ default_font_data := #load("embed/JetBrainsMono-Regular.ttf")
 init :: proc() -> (ok: bool) {
 	B.perf_scoped()
 
-	state, _ = virtual.arena_growing_bootstrap_new(State, "arena")
+	state = B.arena_bootstrap_new(State, "arena")
+
+	for &arena in state.run_string_arenas {
+		arena = B.arena_alloc(reserved = runtime.Megabyte * 32)
+	}
 
 	state.logger   = log.create_console_logger(ident = "FONT", allocator = state_allocator())
 	context.logger = state.logger
@@ -223,15 +226,15 @@ init :: proc() -> (ok: bool) {
 	}
 
 	INITIAL_FONT_MAP_SIZE :: 64
-	state.font_map = B.arena_make(arena(), []^Font, INITIAL_FONT_MAP_SIZE)
+	state.font_map = B.arena_push_make(arena(), []^Font, INITIAL_FONT_MAP_SIZE)
 	INITIAL_GLYPH_MAP_SIZE :: 1024
-	state.glyph_map = B.arena_make(arena(), []^Glyph, INITIAL_GLYPH_MAP_SIZE)
+	state.glyph_map = B.arena_push_make(arena(), []^Glyph, INITIAL_GLYPH_MAP_SIZE)
 	INITIAL_RUN_MAP_SIZE :: 256
-	state.run_map = B.arena_make(arena(), []^Run, INITIAL_RUN_MAP_SIZE)
+	state.run_map = B.arena_push_make(arena(), []^Run, INITIAL_RUN_MAP_SIZE)
 
 	BUCKET_INDEX :: u128(ZERO_KEY) % u128(INITIAL_FONT_MAP_SIZE)
 
-	font := B.arena_new(arena(), Font)
+	font := B.arena_push(arena(), Font)
 
 	font.data = default_font_data
 
@@ -263,7 +266,7 @@ init :: proc() -> (ok: bool) {
 
 frame :: proc() {
 	state.run_lru_current_frame += 1
-	virtual.arena_free_all(&state.run_string_arenas[state.run_lru_current_frame % 2])
+	B.arena_clear(state.run_string_arenas[state.run_lru_current_frame % 2])
 }
 
 // NOTE: internal, invalid with INVALID_ID
@@ -293,7 +296,7 @@ _push_font :: proc(bucket: ^^Font, hash: u128, font_path: string, face_index: in
 	if bucket^ != nil {
 		font = bucket^
 	} else {
-		font = B.arena_new(arena(), Font)
+		font = B.arena_push(arena(), Font)
 	}
 	bucket^         = font
 	font.hash       = hash
@@ -440,7 +443,7 @@ get_run :: proc(font_id: Key, font_size: u16, text: string) -> ^Run {
 			last := container_of(state.run_lru.tail, Run, "lru_node")
 
 			if state.run_lru_len < MAX_LRU_ENTRIES || last.lru_last_access_frame == state.run_lru_current_frame {
-				run                = B.arena_new(arena(), Run)
+				run                = B.arena_push(arena(), Run)
 				state.run_lru_len += 1
 			} else {
 				run = last
@@ -639,7 +642,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 				return glyph_map_get({ font = key.font, font_size = key.font_size, id = 0 })
 			}
 
-			glyph := B.arena_new(arena(), Glyph)
+			glyph := B.arena_push(arena(), Glyph)
 
 			glyph.key         = key
 			glyph.hash        = h
@@ -673,7 +676,7 @@ glyph_map_get :: proc(key: Glyph_Key) -> ^Glyph {
 
 				atlas.size      = { ATLAS_SIZE, ATLAS_SIZE }
 				atlas.texture   = R.texture_from_size(linalg.array_cast(atlas.size, int))
-				atlas.root      = B.arena_new(arena(), Atlas_Node)
+				atlas.root      = B.arena_push(arena(), Atlas_Node)
 
 				atlas.root.rect.size = atlas.size
 
@@ -734,7 +737,7 @@ atlas_upload_glyph :: proc(atlas: Atlas, glyph: ^Glyph, glyph_slot: ^FT.GlyphSlo
 	}
 
 	temp := B.TEMP_ALLOCATOR_GUARD()
-	buffer := B.arena_make(temp.arena, []u8, buffer_size)
+	buffer := B.arena_push_make(temp.arena, []u8, buffer_size)
 	pos := 0
 
 	if .Swizzle in flags {
@@ -784,7 +787,7 @@ atlas_find_and_take_fitting_node_for_size :: proc(node: ^Atlas_Node, glyph_size:
 	if node.rect.size.x > 8 && node.rect.size.y > 8 {
 		for &child, corner in node.children {
 			if child == nil {
-				child = B.arena_new(arena(), Atlas_Node)
+				child = B.arena_push(arena(), Atlas_Node)
 
 				child.rect = {
 					pos  = node.rect.pos + (B.corner_vec(corner, u16) * (node.rect.size / 2)),

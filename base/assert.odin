@@ -14,3 +14,7 @@ when ODIN_DISABLE_ASSERT {
 		return condition
 	}
 }
+
+assert_always :: proc(condition: bool, message := #caller_expression(condition), loc := #caller_location) {
+	builtin.ensure(condition, message, loc)
+}
