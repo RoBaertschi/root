@@ -3,6 +3,8 @@ package oui
 
 import "core:fmt"
 
+import B "../base"
+
 button :: proc(name: string) -> Signal {
 	semantic_width_set_next(text_content(1))
 	semantic_height_set_next(text_content(1))
@@ -66,5 +68,5 @@ stack :: proc(a: Axis) -> bool {
 
 _stack_end :: proc(a: Axis) {
 	pop_parent()
-	assert(child_layout_axis_pop() == a)
+	_ = B.assert(child_layout_axis_pop() == a)
 }

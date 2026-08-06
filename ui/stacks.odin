@@ -2,6 +2,7 @@ package oui
 
 import "base:runtime"
 import F "../font"
+import B "../base"
 
 Stacks :: struct {
 	semantic_width: Stack(Size),
@@ -63,7 +64,7 @@ semantic_width_top :: proc() -> Size { return stack_top(&state.stacks.semantic_w
 semantic_width_guard :: proc(v: Size, loc := #caller_location) { stack_push(&state.stacks.semantic_width, v) }
 _semantic_width_guard_end :: proc(v: Size, loc: runtime.Source_Code_Location) {
 	old := semantic_width_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-semantic_width
 
@@ -76,7 +77,7 @@ semantic_height_top :: proc() -> Size { return stack_top(&state.stacks.semantic_
 semantic_height_guard :: proc(v: Size, loc := #caller_location) { stack_push(&state.stacks.semantic_height, v) }
 _semantic_height_guard_end :: proc(v: Size, loc: runtime.Source_Code_Location) {
 	old := semantic_height_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-semantic_height
 
@@ -89,7 +90,7 @@ child_layout_axis_top :: proc() -> Axis { return stack_top(&state.stacks.child_l
 child_layout_axis_guard :: proc(v: Axis, loc := #caller_location) { stack_push(&state.stacks.child_layout_axis, v) }
 _child_layout_axis_guard_end :: proc(v: Axis, loc: runtime.Source_Code_Location) {
 	old := child_layout_axis_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-child_layout_axis
 
@@ -102,7 +103,7 @@ fixed_x_top :: proc() -> f32 { return stack_top(&state.stacks.fixed_x) }
 fixed_x_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.fixed_x, v) }
 _fixed_x_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
 	old := fixed_x_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-fixed_x
 
@@ -115,7 +116,7 @@ fixed_y_top :: proc() -> f32 { return stack_top(&state.stacks.fixed_y) }
 fixed_y_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.fixed_y, v) }
 _fixed_y_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
 	old := fixed_y_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-fixed_y
 
@@ -128,7 +129,7 @@ text_color_top :: proc() -> Color { return stack_top(&state.stacks.text_color) }
 text_color_guard :: proc(v: Color, loc := #caller_location) { stack_push(&state.stacks.text_color, v) }
 _text_color_guard_end :: proc(v: Color, loc: runtime.Source_Code_Location) {
 	old := text_color_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-text_color
 
@@ -141,7 +142,7 @@ border_color_top :: proc() -> Color { return stack_top(&state.stacks.border_colo
 border_color_guard :: proc(v: Color, loc := #caller_location) { stack_push(&state.stacks.border_color, v) }
 _border_color_guard_end :: proc(v: Color, loc: runtime.Source_Code_Location) {
 	old := border_color_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-border_color
 
@@ -154,7 +155,7 @@ background_color_top :: proc() -> Color { return stack_top(&state.stacks.backgro
 background_color_guard :: proc(v: Color, loc := #caller_location) { stack_push(&state.stacks.background_color, v) }
 _background_color_guard_end :: proc(v: Color, loc: runtime.Source_Code_Location) {
 	old := background_color_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-background_color
 
@@ -167,7 +168,7 @@ border_thickness_top :: proc() -> f32 { return stack_top(&state.stacks.border_th
 border_thickness_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.border_thickness, v) }
 _border_thickness_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
 	old := border_thickness_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-border_thickness
 
@@ -180,7 +181,7 @@ corner_radius_top :: proc() -> f32 { return stack_top(&state.stacks.corner_radiu
 corner_radius_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.corner_radius, v) }
 _corner_radius_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
 	old := corner_radius_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-corner_radius
 
@@ -193,7 +194,7 @@ font_size_top :: proc() -> u16 { return stack_top(&state.stacks.font_size) }
 font_size_guard :: proc(v: u16, loc := #caller_location) { stack_push(&state.stacks.font_size, v) }
 _font_size_guard_end :: proc(v: u16, loc: runtime.Source_Code_Location) {
 	old := font_size_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-font_size
 
@@ -206,7 +207,7 @@ font_top :: proc() -> F.Key { return stack_top(&state.stacks.font) }
 font_guard :: proc(v: F.Key, loc := #caller_location) { stack_push(&state.stacks.font, v) }
 _font_guard_end :: proc(v: F.Key, loc: runtime.Source_Code_Location) {
 	old := font_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-font
 
@@ -219,7 +220,7 @@ text_padding_top :: proc() -> f32 { return stack_top(&state.stacks.text_padding)
 text_padding_guard :: proc(v: f32, loc := #caller_location) { stack_push(&state.stacks.text_padding, v) }
 _text_padding_guard_end :: proc(v: f32, loc: runtime.Source_Code_Location) {
 	old := text_padding_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-text_padding
 
@@ -232,7 +233,7 @@ text_alignment_top :: proc() -> Text_Alignment { return stack_top(&state.stacks.
 text_alignment_guard :: proc(v: Text_Alignment, loc := #caller_location) { stack_push(&state.stacks.text_alignment, v) }
 _text_alignment_guard_end :: proc(v: Text_Alignment, loc: runtime.Source_Code_Location) {
 	old := text_alignment_pop()
-	assert(old == v, loc = loc)
+	_ = B.assert(old == v, loc = loc)
 }
 //-text_alignment
 

@@ -259,28 +259,28 @@ texture_from_size :: proc(size: [2]int) -> Texture_Handle {
 }
 
 texture_fill_part :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
-	assert(len(data) >= size.x * size.y * 4)
+	if B.assert(len(data) >= size.x * size.y * 4) {
+		texture, ok := B.hm_get(&state.textures, handle)
+		if !ok {
+			return
+		}
 
-	texture, ok := B.hm_get(&state.textures, handle)
-	if !ok {
-		return
+		gl.BindTexture(gl.TEXTURE_2D, texture.id)
+		gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
 	}
-
-	gl.BindTexture(gl.TEXTURE_2D, texture.id)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.RGBA, gl.UNSIGNED_BYTE, raw_data(data))
 }
 
 texture_fill_part_bgra :: proc(handle: Texture_Handle, pos: [2]int, size: [2]int, data: []byte) {
-	assert(len(data) >= size.x * size.y * 4)
+	if B.assert(len(data) >= size.x * size.y * 4) {
+		texture, ok := B.hm_get(&state.textures, handle)
+		if !ok {
+			return
+		}
 
-	texture, ok := B.hm_get(&state.textures, handle)
-	if !ok {
-		return
+		gl.ActiveTexture(gl.TEXTURE0)
+		gl.BindTexture(gl.TEXTURE_2D, texture.id)
+		gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
 	}
-
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, texture.id)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, **linalg.array_cast(pos, i32), **linalg.array_cast(size, i32), gl.BGRA, gl.UNSIGNED_BYTE, raw_data(data))
 }
 
 top_clip :: proc() -> B.Rect(int) {
@@ -292,7 +292,7 @@ push_clip :: proc(r: B.Rect(int)) {
 }
 
 pop_clip :: proc() -> B.Rect(int) {
-	assert(xar.len(state.clips) > 1)
+	B.assert_always(xar.len(state.clips) > 1)
 
 	return xar.pop(&state.clips)
 }

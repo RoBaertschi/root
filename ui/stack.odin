@@ -81,7 +81,7 @@ stack_init :: proc(s: ^Stack($T), nil_value: T) {
 	s^ = {}
 	stack_push(s, nil_value)
 	s.nil_node = s.base
-	assert(s.nil_node != nil)
+	B.assert_always(s.nil_node != nil)
 }
 
 stack_auto_pop :: proc(s: ^Stack($T)) {

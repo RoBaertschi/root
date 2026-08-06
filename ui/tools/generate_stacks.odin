@@ -42,7 +42,7 @@ main :: proc() {
 
 	w := os.to_writer(f)
 
-	io.write_string(w, "package oui\n\nimport \"base:runtime\"\nimport F \"../font\"\n\n")
+	io.write_string(w, "package oui\n\nimport \"base:runtime\"\nimport F \"../font\"\nimport B \"../base\"\n\n")
 
 	// Stacks struct
 	io.write_string(w, "Stacks :: struct {\n")
@@ -90,7 +90,7 @@ main :: proc() {
 
 		// guard
 		fmt.wprintf(w, "@(deferred_in=_%[0]s_guard_end)\n%[0]s_guard :: proc(v: %[1]s, loc := #caller_location) {{ stack_push(&state.stacks.%[0]s, v) }}\n", stack.name, stack.type)
-		fmt.wprintf(w, "_%[0]s_guard_end :: proc(v: %[1]s, loc: runtime.Source_Code_Location) {{\n\told := %[0]s_pop()\n\tassert(old == v, loc = loc)\n}}\n", stack.name, stack.type)
+		fmt.wprintf(w, "_%[0]s_guard_end :: proc(v: %[1]s, loc: runtime.Source_Code_Location) {{\n\told := %[0]s_pop()\n\t_ = B.assert(old == v, loc = loc)\n}}\n", stack.name, stack.type)
 
 		fmt.wprintf(w, "//-%v\n\n", stack.name)
 	}

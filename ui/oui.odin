@@ -140,14 +140,14 @@ box_iterate :: proc(it: ^Box_Iterator) -> (b: ^Box, ok: bool) {
 
 push_parent :: proc(b: ^Box) {
 	if state.current == nil {
-		assert(b.parent == nil)
+		_ = B.assert(b.parent == nil)
 		state.root    = b
 		state.current = b
 
 		return
 	}
 
-	assert(state.current == b.parent)
+	_ = B.assert(state.current == b.parent)
 	state.current = b
 }
 
@@ -161,7 +161,7 @@ pop_parent :: proc() -> ^Box {
 
 _parent_guard_end :: proc(b: ^Box) {
 	old_box := pop_parent()
-	assert(old_box == b)
+	_ = B.assert(old_box == b)
 }
 
 @(deferred_in=_parent_guard_end)
@@ -294,11 +294,12 @@ end :: proc() {
 		case .Pixels:
 			b.computed_size[a] = size.value
 		case .Text_Content:
-			assert(b.att_text != nil)
-			b.computed_size[a] = b.att_text.run.layout[a]
+			if B.assert(b.att_text != nil) {
+				b.computed_size[a] = b.att_text.run.layout[a]
 
-			if a == .X {
-				b.computed_size[a] += b.att_text.text_padding * 2
+				if a == .X {
+					b.computed_size[a] += b.att_text.text_padding * 2
+				}
 			}
 		}
 

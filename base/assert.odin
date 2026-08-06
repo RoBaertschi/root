@@ -1,11 +1,12 @@
 package root_base
 
+import "base:intrinsics"
 import "base:builtin"
 
 when ODIN_DISABLE_ASSERT {
 	@require_results
 	assert :: proc(condition: bool, message := #caller_expression(condition), loc := #caller_location) -> bool {
-		return condition
+		return intrinsics.expect(condition, true)
 	}
 } else {
 	@require_results
